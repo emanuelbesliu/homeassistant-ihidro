@@ -1,6 +1,6 @@
 # 🏠 iHidro - Integrare Home Assistant pentru Hidroelectrica România
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/emanuelbesliu/ihidro)
+[![Version](https://img.shields.io/badge/version-1.0.4-blue.svg)](https://github.com/emanuelbesliu/ihidro)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.1+-blue.svg)](https://www.home-assistant.io/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -77,6 +77,17 @@ _*XXXXX = Numărul POD-ului (Utility Account Number)_
 
 ## 🚀 Utilizare
 
+### 📘 Ghid Complet de Testare
+
+**Pentru instrucțiuni detaliate de testare și utilizare, consultă [TESTING.md](TESTING.md)**
+
+Ghidul include:
+- ✅ Verificarea instalării și configurării
+- ✅ Identificarea detaliilor POD-ului
+- ✅ Testarea serviciului de trimitere index
+- ✅ Configurarea automatizărilor
+- ✅ Troubleshooting și debugging
+
 ### Trimitere Manuală Index
 
 Poți trimite manual indexul folosind serviciul `ihidro.submit_meter_reading`:
@@ -90,6 +101,8 @@ data:
   meter_reading: 12345.5
   reading_date: "02/22/2024"  # Opțional
 ```
+
+**⚠️ IMPORTANT:** Verifică fereastra de transmitere înainte de trimitere (tipic 18-25 a fiecărei luni).
 
 ### Automatizare Lunară (Recomandată)
 
@@ -276,7 +289,7 @@ Poți accesa aceste atribute în automatizări:
 3. Verifică că ai acces la POD-ul respectiv
 4. Consultă logurile pentru detalii
 
-**⚠️ IMPORTANT**: Endpoint-ul pentru trimiterea indexului poate necesita validare suplimentară. Dacă întâmpini probleme, consultă documentația de interceptare API din integrarea Hidroelectrica.
+**⚠️ IMPORTANT**: Endpoint-ul pentru trimiterea indexului a fost estimat bazat pe structura API-ului Hidroelectrica. Dacă întâmpini probleme, consultă [TESTING.md](TESTING.md) pentru debugging sau deschide un issue pe GitHub.
 
 ## 📝 Structura Fișierelor
 
