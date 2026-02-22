@@ -419,17 +419,21 @@ class IhidroLastPaymentSensor(IhidroBaseSensor):
     def native_value(self) -> Optional[float]:
         """Returnează suma ultimei plăți."""
         account_data = self._get_account_data()
-        payment_history = account_data.get("payment_history")
+        bill_history = account_data.get("bill_history")
         
-        if not payment_history:
+        if not bill_history:
             return None
         
         try:
-            data = payment_history.get("result", {}).get("Data", {})
-            table = data.get("Table", [])
-            if table:
-                amount_str = table[0].get("Amount", "0")
-                amount_str = amount_str.replace("RON", "").replace(",", "").strip()
+            # Plățile sunt în objBillingPaymentHistoryEntity din billing history
+            result = bill_history.get("result", {})
+            payments = result.get("objBillingPaymentHistoryEntity", [])
+            if payments:
+                # Plățile sunt sortate descrescător după dată, prima e cea mai recentă
+                last_payment = payments[0]
+                amount_str = last_payment.get("amount", "0")
+                # Curățăm string-ul (poate conține "RON", virgule, etc.)
+                amount_str = str(amount_str).replace("RON", "").replace(",", "").strip()
                 return float(amount_str)
         except (ValueError, TypeError, KeyError) as err:
             _LOGGER.debug("Eroare la parsarea ultimei plăți: %s", err)
@@ -440,21 +444,21 @@ class IhidroLastPaymentSensor(IhidroBaseSensor):
     def extra_state_attributes(self) -> Dict[str, Any]:
         """Atribute adiționale."""
         account_data = self._get_account_data()
-        payment_history = account_data.get("payment_history")
+        bill_history = account_data.get("bill_history")
         
         attrs = {
             ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
             ATTR_ACCOUNT_NUMBER: self._an,
         }
         
-        if payment_history:
-            data = payment_history.get("result", {}).get("Data", {})
-            table = data.get("Table", [])
-            if table:
-                last_payment = table[0]
-                attrs["payment_date"] = last_payment.get("PaymentDate")
-                attrs["payment_method"] = last_payment.get("PaymentMethod")
-                attrs["reference"] = last_payment.get("Reference")
+        if bill_history:
+            result = bill_history.get("result", {})
+            payments = result.get("objBillingPaymentHistoryEntity", [])
+            if payments:
+                last_payment = payments[0]
+                attrs["payment_date"] = last_payment.get("paymentDate")
+                attrs["bill_month"] = last_payment.get("billMonth")
+                attrs["bill_year"] = last_payment.get("billYear")
         
         return attrs
 

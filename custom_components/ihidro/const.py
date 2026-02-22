@@ -14,7 +14,6 @@ API_GET_MULTI_METER_READ_DATE = f"{API_BASE_URL}/Service/SelfMeterReading/GetWin
 API_URL_GET_BILL = f"{API_BASE_URL}/Service/Billing/GetBill"
 API_URL_GET_BILL_HISTORY = f"{API_BASE_URL}/Service/Billing/GetBillingHistoryList"
 API_URL_GET_USAGE_GENERATION = f"{API_BASE_URL}/Service/Usage/GetUsageGeneration"
-API_URL_GET_PAYMENT_HISTORY = f"{API_BASE_URL}/Service/Payment/GetPaymentHistory"
 # Endpoint pentru trimitere index (va fi descoperit prin interceptare)
 API_SUBMIT_METER_READING = f"{API_BASE_URL}/Service/SelfMeterReading/SubmitMeterReading"
 

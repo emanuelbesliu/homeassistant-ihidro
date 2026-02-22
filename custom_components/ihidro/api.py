@@ -4,7 +4,6 @@ Client API pentru iHidro.ro (Hidroelectrica România).
 Implementează toate endpoint-urile API pentru:
 - Autentificare
 - Facturi (curente și istorice)
-- Plăți (istorice)
 - Consum electric (istoric)
 - Index contor (citire și trimitere)
 """
@@ -25,7 +24,6 @@ from .const import (
     API_URL_GET_BILL,
     API_URL_GET_BILL_HISTORY,
     API_URL_GET_USAGE_GENERATION,
-    API_URL_GET_PAYMENT_HISTORY,
     API_SUBMIT_METER_READING,
 )
 
@@ -276,44 +274,6 @@ class IhidroAPI:
             payload=payload,
             headers=self._auth_header,
             descriere="GetBillingHistoryList - Istoric facturi"
-        )
-
-    # =========================================================================
-    # Endpoint-uri pentru plăți
-    # =========================================================================
-
-    def get_payment_history(
-        self,
-        utility_account_number: str,
-        account_number: str,
-        from_date: str,
-        to_date: str
-    ) -> Dict[str, Any]:
-        """
-        Obține istoricul plăților pentru un POD.
-        
-        Args:
-            utility_account_number: Număr cont utilitate (UAN)
-            account_number: Număr cont (AN)
-            from_date: Data de început (format MM/DD/YYYY)
-            to_date: Data de final (format MM/DD/YYYY)
-            
-        Returns:
-            Dict cu istoricul plăților
-        """
-        payload = {
-            "LanguageCode": "RO",
-            "UserID": self._user_id,
-            "UtilityAccountNumber": utility_account_number,
-            "AccountNumber": account_number,
-            "FromDate": from_date,
-            "ToDate": to_date
-        }
-        return self._post_request(
-            API_URL_GET_PAYMENT_HISTORY,
-            payload=payload,
-            headers=self._auth_header,
-            descriere="GetPaymentHistory - Istoric plăți"
         )
 
     # =========================================================================

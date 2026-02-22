@@ -125,18 +125,6 @@ class IhidroDataUpdateCoordinator(DataUpdateCoordinator):
             except Exception as err:
                 _LOGGER.warning("Eroare la obținerea istoricului facturilor pentru %s: %s", uan, err)
             
-            # Istoric plăți (ultimele 12 luni)
-            try:
-                to_date = datetime.now()
-                from_date = to_date.replace(year=to_date.year - 1)
-                account_data["payment_history"] = self.api.get_payment_history(
-                    uan, an,
-                    from_date.strftime("%m/%d/%Y"),
-                    to_date.strftime("%m/%d/%Y")
-                )
-            except Exception as err:
-                _LOGGER.warning("Eroare la obținerea istoricului plăților pentru %s: %s", uan, err)
-            
             # Istoric consum
             try:
                 account_data["usage_history"] = self.api.get_usage_generation(uan, an)
