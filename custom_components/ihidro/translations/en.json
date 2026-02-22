@@ -1,0 +1,40 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configure iHidro Romania",
+        "description": "Enter your iHidro.ro (Hidroelectrica Romania) account credentials.",
+        "data": {
+          "username": "Username (email or client code)",
+          "password": "Password",
+          "update_interval": "Update interval (seconds)"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid credentials. Please check your username and password.",
+      "cannot_connect": "Cannot connect to iHidro server. Please check your internet connection.",
+      "unknown": "Unknown error occurred. Check Home Assistant logs."
+    },
+    "abort": {
+      "already_configured": "This iHidro account is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "iHidro Options",
+        "description": "Configure options for the iHidro integration.",
+        "data": {
+          "update_interval": "Update interval (seconds)"
+        }
+      }
+    }
+  },
+  "services": {
+    "submit_meter_reading": {
+      "name": "Submit Meter Reading",
+      "description": "Submit electricity meter reading to Hidroelectrica for a specific POD."
+    }
+  }
+}

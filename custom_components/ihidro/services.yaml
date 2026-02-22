@@ -1,0 +1,50 @@
+# Servicii disponibile pentru integrarea iHidro
+
+submit_meter_reading:
+  name: Trimite Index Contor
+  description: >-
+    Trimite indexul contorului electric la Hidroelectrica România pentru un POD specific.
+    Acest serviciu permite automatizarea trimiterii lunare a indexului.
+  fields:
+    utility_account_number:
+      name: Număr Cont Utilitate (UAN)
+      description: Numărul contului utilitate (Utility Account Number)
+      required: true
+      example: "12345678"
+      selector:
+        text:
+    account_number:
+      name: Număr Cont (AN)
+      description: Numărul contului (Account Number)
+      required: true
+      example: "87654321"
+      selector:
+        text:
+    meter_number:
+      name: Număr Contor
+      description: Numărul contorului electric
+      required: true
+      example: "CNT123456"
+      selector:
+        text:
+    meter_reading:
+      name: Index Contor
+      description: Valoarea indexului de transmis (în kWh)
+      required: true
+      example: 12345.5
+      selector:
+        number:
+          min: 0
+          max: 999999
+          step: 0.1
+          mode: box
+          unit_of_measurement: "kWh"
+    reading_date:
+      name: Data Citirii
+      description: >-
+        Data la care a fost citit indexul (format MM/DD/YYYY).
+        Dacă nu este specificată, se folosește data curentă.
+      required: false
+      example: "02/22/2024"
+      selector:
+        text:
