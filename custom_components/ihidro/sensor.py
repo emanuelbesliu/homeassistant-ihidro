@@ -153,7 +153,7 @@ class IhidroCurrentBalanceSensor(IhidroBaseSensor):
 
     @property
     def native_value(self) -> Optional[float]:
-        """Returnează soldul curent."""
+        """Returnează soldul curent (rembalance)."""
         account_data = self._get_account_data()
         current_bill = account_data.get("current_bill")
         
@@ -161,14 +161,12 @@ class IhidroCurrentBalanceSensor(IhidroBaseSensor):
             return None
         
         try:
-            # Extragem suma din structura API
-            data = current_bill.get("result", {}).get("Data", {})
-            table = data.get("Table", [])
-            if table:
-                amount_str = table[0].get("Amount", "0")
-                # Curățăm string-ul (eliminăm simboluri și convertem în float)
-                amount_str = amount_str.replace("RON", "").replace(",", "").strip()
-                return float(amount_str)
+            # API returnează direct result.rembalance (nu result.Data.Table)
+            result = current_bill.get("result", {})
+            rembalance_str = result.get("rembalance", "0,00")
+            # Curățăm string-ul (format românesc: virgulă ca separator zecimal)
+            rembalance_str = str(rembalance_str).replace(",", ".").strip()
+            return float(rembalance_str)
         except (ValueError, TypeError, KeyError) as err:
             _LOGGER.debug("Eroare la parsarea soldului curent: %s", err)
         
@@ -187,14 +185,11 @@ class IhidroCurrentBalanceSensor(IhidroBaseSensor):
         }
         
         if current_bill:
-            data = current_bill.get("result", {}).get("Data", {})
-            table = data.get("Table", [])
-            if table:
-                bill_info = table[0]
-                attrs[ATTR_DUE_DATE] = bill_info.get("DueDate")
-                attrs["bill_number"] = bill_info.get("BillNumber")
-                attrs["bill_date"] = bill_info.get("BillDate")
-                attrs[ATTR_STATUS] = bill_info.get("Status")
+            result = current_bill.get("result", {})
+            attrs["bill_amount"] = result.get("billamount")
+            attrs["invoice_number"] = result.get("invoicenumber")
+            attrs[ATTR_DUE_DATE] = result.get("duedate")
+            attrs["rembalance"] = result.get("rembalance")
         
         return attrs
 
@@ -225,10 +220,12 @@ class IhidroLastBillSensor(IhidroBaseSensor):
             return None
         
         try:
-            data = bill_history.get("result", {}).get("Data", {})
-            table = data.get("Table", [])
-            if table:
-                return table[0].get("BillNumber")
+            # API returnează result.objBillingHistoryEntity (listă de facturi)
+            result = bill_history.get("result", {})
+            bills = result.get("objBillingHistoryEntity", [])
+            if bills:
+                # Prima factură este cea mai recentă
+                return bills[0].get("exbel")  # număr factură
         except (TypeError, KeyError) as err:
             _LOGGER.debug("Eroare la parsarea ultimei facturi: %s", err)
         
@@ -246,15 +243,15 @@ class IhidroLastBillSensor(IhidroBaseSensor):
         }
         
         if bill_history:
-            data = bill_history.get("result", {}).get("Data", {})
-            table = data.get("Table", [])
-            if table:
-                last_bill = table[0]
-                attrs["bill_date"] = last_bill.get("BillDate")
-                attrs[ATTR_AMOUNT] = last_bill.get("Amount")
-                attrs[ATTR_CONSUMPTION] = last_bill.get("Consumption")
-                attrs[ATTR_DUE_DATE] = last_bill.get("DueDate")
-                attrs[ATTR_STATUS] = last_bill.get("Status")
+            result = bill_history.get("result", {})
+            bills = result.get("objBillingHistoryEntity", [])
+            if bills:
+                last_bill = bills[0]
+                attrs["invoice_date"] = last_bill.get("invoiceDate")
+                attrs[ATTR_AMOUNT] = last_bill.get("amount")
+                attrs[ATTR_DUE_DATE] = last_bill.get("dueDate")
+                attrs["invoice_type"] = last_bill.get("invoiceType")
+                attrs["invoice_id"] = last_bill.get("invoiceId")
         
         return attrs
 
@@ -287,10 +284,12 @@ class IhidroMeterReadingSensor(IhidroBaseSensor):
             return None
         
         try:
-            data = meter_details.get("result", {}).get("Data", {})
-            table = data.get("Table", [])
-            if table:
-                reading_str = table[0].get("MeterReading", "0")
+            # API returnează result.MeterDetails (listă de contoare)
+            result = meter_details.get("result", {})
+            meters = result.get("MeterDetails", [])
+            if meters:
+                # Folosim primul contor
+                reading_str = meters[0].get("LastReading", "0")
                 return float(reading_str)
         except (ValueError, TypeError, KeyError) as err:
             _LOGGER.debug("Eroare la parsarea indexului contor: %s", err)
@@ -310,21 +309,22 @@ class IhidroMeterReadingSensor(IhidroBaseSensor):
         }
         
         if meter_details:
-            data = meter_details.get("result", {}).get("Data", {})
-            table = data.get("Table", [])
-            if table:
-                meter_info = table[0]
+            result = meter_details.get("result", {})
+            meters = result.get("MeterDetails", [])
+            if meters:
+                meter_info = meters[0]
                 attrs[ATTR_METER_NUMBER] = meter_info.get("MeterNumber")
-                attrs[ATTR_LAST_READING] = meter_info.get("MeterReading")
-                attrs[ATTR_LAST_READING_DATE] = meter_info.get("ReadingDate")
+                attrs[ATTR_LAST_READING] = meter_info.get("LastReading")
+                attrs[ATTR_LAST_READING_DATE] = meter_info.get("LastReadingDate")
         
         if meter_window:
+            # API returnează result.Data cu câmpuri directe
             data = meter_window.get("result", {}).get("Data", {})
-            table = data.get("Table", [])
-            if table:
-                window_info = table[0]
-                attrs["reading_window_start"] = window_info.get("WindowStartDate")
-                attrs["reading_window_end"] = window_info.get("WindowEndDate")
+            attrs["reading_window_start"] = data.get("OpeningDate")
+            attrs["reading_window_end"] = data.get("ClosingDate")
+            attrs["next_month_opening"] = data.get("NextMonthOpeningDate")
+            attrs["next_month_closing"] = data.get("NextMonthClosingDate")
+            attrs["is_window_open"] = data.get("Is_Window_Open")
         
         return attrs
 
@@ -349,7 +349,7 @@ class IhidroMonthlyConsumptionSensor(IhidroBaseSensor):
 
     @property
     def native_value(self) -> Optional[float]:
-        """Returnează consumul lunar."""
+        """Returnează consumul lunar (din ultimul an disponibil)."""
         account_data = self._get_account_data()
         usage_history = account_data.get("usage_history")
         
@@ -357,11 +357,13 @@ class IhidroMonthlyConsumptionSensor(IhidroBaseSensor):
             return None
         
         try:
+            # API returnează result.Data.objUsageGenerationResultSetTwo
             data = usage_history.get("result", {}).get("Data", {})
-            table = data.get("Table", [])
-            if table:
-                # Luăm consumul din prima înregistrare (cea mai recentă)
-                consumption_str = table[0].get("Consumption", "0")
+            usage_list = data.get("objUsageGenerationResultSetTwo", [])
+            if usage_list:
+                # Luăm ultimul consum disponibil
+                latest = usage_list[-1]  # Ultima lună
+                consumption_str = latest.get("Usage", "0")
                 return float(consumption_str)
         except (ValueError, TypeError, KeyError) as err:
             _LOGGER.debug("Eroare la parsarea consumului lunar: %s", err)
@@ -381,15 +383,15 @@ class IhidroMonthlyConsumptionSensor(IhidroBaseSensor):
         
         if usage_history:
             data = usage_history.get("result", {}).get("Data", {})
-            table = data.get("Table", [])
-            if table:
+            usage_list = data.get("objUsageGenerationResultSetTwo", [])
+            if usage_list:
                 # Adăugăm istoricul ultimelor 6 luni
                 history = []
-                for entry in table[:6]:
+                for entry in usage_list[-6:]:  # Ultimele 6 luni
                     history.append({
                         "month": entry.get("Month"),
                         "year": entry.get("Year"),
-                        "consumption": entry.get("Consumption"),
+                        "usage": entry.get("Usage"),
                         "cost": entry.get("Cost"),
                     })
                 attrs["history"] = history
