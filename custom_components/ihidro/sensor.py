@@ -10,6 +10,8 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CURRENCY_EURO
+# Hidroelectrica folosește RON, nu EUR
+CURRENCY_RON = "RON"
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -137,7 +139,7 @@ class IhidroCurrentBalanceSensor(IhidroBaseSensor):
     """Senzor pentru sold curent (factură curentă)."""
 
     _attr_device_class = SensorDeviceClass.MONETARY
-    _attr_native_unit_of_measurement = CURRENCY_EURO
+    _attr_native_unit_of_measurement = CURRENCY_RON
     _attr_icon = "mdi:cash"
 
     def __init__(
@@ -403,7 +405,7 @@ class IhidroLastPaymentSensor(IhidroBaseSensor):
     """Senzor pentru ultima plată."""
 
     _attr_device_class = SensorDeviceClass.MONETARY
-    _attr_native_unit_of_measurement = CURRENCY_EURO
+    _attr_native_unit_of_measurement = CURRENCY_RON
     _attr_icon = "mdi:cash-check"
 
     def __init__(
