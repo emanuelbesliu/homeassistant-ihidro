@@ -70,6 +70,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         
         try:
+            # Verificăm mai întâi fereastra de transmitere
+            _LOGGER.debug("Verificăm fereastra de transmitere pentru POD %s...", utility_account_number)
+            window = await hass.async_add_executor_job(
+                coordinator.api.get_window_dates_enc,
+                utility_account_number,
+                account_number
+            )
+            
+            if window and "Data" in window:
+                window_data = window["Data"]
+                opening_date = window_data.get("OpeningDate", "")
+                closing_date = window_data.get("ClosingDate", "")
+                _LOGGER.info(
+                    "Fereastră transmitere: %s - %s",
+                    opening_date, closing_date
+                )
+            
             # Apelăm metoda API pentru trimitere index
             result = await hass.async_add_executor_job(
                 coordinator.api.submit_meter_reading,
@@ -81,12 +98,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
             
             if result.get("success"):
-                _LOGGER.info("Index trimis cu succes: %s", result.get("message"))
+                _LOGGER.info("✅ Index trimis cu succes: %s", result.get("message"))
             else:
-                _LOGGER.error("Eroare la trimiterea indexului: %s", result.get("message"))
+                _LOGGER.error("❌ Eroare la trimiterea indexului: %s", result.get("message"))
                 
         except Exception as err:
-            _LOGGER.error("Excepție la trimiterea indexului: %s", err)
+            _LOGGER.error("❌ Excepție la trimiterea indexului: %s", err)
     
     hass.services.async_register(
         DOMAIN,

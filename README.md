@@ -1,6 +1,6 @@
 # 🏠 iHidro - Integrare Home Assistant pentru Hidroelectrica România
 
-[![Version](https://img.shields.io/badge/version-1.0.4-blue.svg)](https://github.com/emanuelbesliu/ihidro)
+[![Version](https://img.shields.io/badge/version-1.0.5-blue.svg)](https://github.com/emanuelbesliu/ihidro)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.1+-blue.svg)](https://www.home-assistant.io/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
