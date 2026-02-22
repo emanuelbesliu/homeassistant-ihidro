@@ -68,12 +68,17 @@ După configurare, vei avea următorii senzori pentru fiecare POD:
 |--------|-----------|---------|
 | `sensor.ihidro_sold_curent_XXXXX` | Sold curent (factură) | RON |
 | `sensor.ihidro_ultima_factura_XXXXX` | Număr ultima factură | - |
-| `sensor.ihidro_index_contor_XXXXX` | Index curent contor | kWh |
-| `sensor.ihidro_consum_lunar_XXXXX` | Consum lunar | kWh |
+| `sensor.ihidro_index_contor_XXXXX` | Index curent contor ⚠️ | kWh |
+| `sensor.ihidro_consum_lunar_XXXXX` | Consum lunar ⚠️ | kWh |
 | `sensor.ihidro_ultima_plata_XXXXX` | Suma ultima plată | RON |
 | `sensor.ihidro_pod_info_XXXXX` | Informații POD | - |
 
 _*XXXXX = Numărul POD-ului (Utility Account Number)_
+
+**⚠️ Senzorii de Index și Consum:**
+- Acești senzori vor arăta "Unknown" pentru **contoarele clasice** (fără smart meter AMI)
+- Acest lucru este **comportament normal** - API-ul Hidroelectrica nu expune aceste date pentru contoarele non-smart
+- **Soluție:** Consultă [SOLUTIE_INDEX_MANUAL.md](SOLUTIE_INDEX_MANUAL.md) pentru ghid complet de configurare a indexului manual
 
 ## 🚀 Utilizare
 
@@ -102,7 +107,9 @@ data:
   reading_date: "02/22/2024"  # Opțional
 ```
 
-**⚠️ IMPORTANT:** Verifică fereastra de transmitere înainte de trimitere (tipic 18-25 a fiecărei luni).
+**⚠️ IMPORTANT:** 
+- Verifică fereastra de transmitere înainte de trimitere (tipic 18-25 a fiecărei luni)
+- **Pentru contoare clasice:** Consultă [SOLUTIE_INDEX_MANUAL.md](SOLUTIE_INDEX_MANUAL.md) pentru configurare cu input_number helper
 
 ### Automatizare Lunară (Recomandată)
 
