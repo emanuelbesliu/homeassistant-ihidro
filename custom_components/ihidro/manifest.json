@@ -6,6 +6,6 @@
   "documentation": "https://github.com/emanuelbesliu/homeassistant-ihidro",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/emanuelbesliu/homeassistant-ihidro/issues",
-  "requirements": ["requests>=2.31.0"],
-  "version": "1.0.5"
+  "requirements": ["requests>=2.31.0", "beautifulsoup4>=4.12.0"],
+  "version": "1.1.0"
 }

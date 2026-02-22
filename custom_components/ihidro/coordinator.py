@@ -11,6 +11,7 @@ from homeassistant.helpers.update_coordinator import (
 )
 
 from .api import IhidroAPI
+from .web_portal_api import IhidroWebPortalAPI
 from .const import (
     DOMAIN,
     CONF_USERNAME,
@@ -29,8 +30,13 @@ class IhidroDataUpdateCoordinator(DataUpdateCoordinator):
         """Inițializare coordinator."""
         self.entry = entry
         
-        # Inițializăm API-ul
+        # Inițializăm ambele API-uri (Mobile + Web Portal)
         self.api = IhidroAPI(
+            username=entry.data[CONF_USERNAME],
+            password=entry.data[CONF_PASSWORD],
+        )
+        
+        self.web_api = IhidroWebPortalAPI(
             username=entry.data[CONF_USERNAME],
             password=entry.data[CONF_PASSWORD],
         )
@@ -66,20 +72,31 @@ class IhidroDataUpdateCoordinator(DataUpdateCoordinator):
         """
         Fetch sincron al datelor de la API (rulează în executor).
         
+        Folosește DUAL API:
+        - Mobile API: pentru facturi, balanță, plăți
+        - Web Portal API: pentru index contor și istoric
+        
         Returns:
             Dict structurat cu toate datele pentru toate POD-urile
         """
-        _LOGGER.debug("=== iHidro Coordinator: Începem actualizarea datelor ===")
+        _LOGGER.debug("=== iHidro Coordinator: Începem actualizarea datelor (Dual API) ===")
         
-        # Autentificare (dacă e necesar)
+        # Autentificare Mobile API (dacă e necesar)
         self.api.login_if_needed()
         
-        # Obținem lista de POD-uri
+        # Autentificare Web Portal API (dacă e necesar)
+        self.web_api.login_if_needed()
+        
+        # Obținem lista de POD-uri din Mobile API
         accounts = self.api.get_utility_accounts()
         
         if not accounts:
             _LOGGER.warning("Nu s-au găsit POD-uri pentru utilizatorul curent")
             return {"accounts": []}
+        
+        # Obținem și POD-urile din Web Portal pentru a avea installation și contractAccountID
+        web_pods = self.web_api.get_all_pods()
+        web_pods_dict = {pod["pod"]: pod for pod in web_pods}  # Index by POD number
         
         _LOGGER.debug("Actualizăm date pentru %d POD-uri", len(accounts))
         
@@ -105,15 +122,18 @@ class IhidroDataUpdateCoordinator(DataUpdateCoordinator):
                 "usage_history": None,
                 "meter_details": None,
                 "meter_window": None,
+                "web_pod_info": None,  # NEW: Date din Web Portal
+                "meter_reading": None,  # NEW: Index curent din Web Portal
+                "meter_history": None,  # NEW: Istoric index din Web Portal
             }
             
-            # Factură curentă
+            # Factură curentă (Mobile API)
             try:
                 account_data["current_bill"] = self.api.get_current_bill(uan, an)
             except Exception as err:
                 _LOGGER.warning("Eroare la obținerea facturii curente pentru %s: %s", uan, err)
             
-            # Istoric facturi (ultimele 12 luni)
+            # Istoric facturi (Mobile API - ultimele 12 luni)
             try:
                 to_date = datetime.now()
                 from_date = to_date.replace(year=to_date.year - 1)
@@ -125,25 +145,66 @@ class IhidroDataUpdateCoordinator(DataUpdateCoordinator):
             except Exception as err:
                 _LOGGER.warning("Eroare la obținerea istoricului facturilor pentru %s: %s", uan, err)
             
-            # Istoric consum
+            # Istoric consum (Mobile API)
             try:
                 account_data["usage_history"] = self.api.get_usage_generation(uan, an)
             except Exception as err:
                 _LOGGER.warning("Eroare la obținerea istoricului de consum pentru %s: %s", uan, err)
             
-            # Detalii contor
+            # Detalii contor (Mobile API - pentru compatibilitate)
             try:
                 account_data["meter_details"] = self.api.get_multi_meter_details(uan, an)
             except Exception as err:
                 _LOGGER.warning("Eroare la obținerea detaliilor contorului pentru %s: %s", uan, err)
             
-            # Fereastră de citire index
+            # Fereastră de citire index (Mobile API)
             try:
                 account_data["meter_window"] = self.api.get_window_dates_enc(uan, an)
             except Exception as err:
                 _LOGGER.warning("Eroare la obținerea ferestrei de citire pentru %s: %s", uan, err)
             
+            # === WEB PORTAL API DATA ===
+            # Găsim POD-ul corespunzător în datele Web Portal
+            # Căutăm după UtilityAccountNumber sau Customer Name
+            web_pod = None
+            for pod_num, pod_data in web_pods_dict.items():
+                # Match by contract account ID if available
+                if pod_data.get("contractAccountID") == uan:
+                    web_pod = pod_data
+                    break
+            
+            if web_pod:
+                account_data["web_pod_info"] = web_pod
+                
+                # Index contor curent și istoric (Web Portal API)
+                try:
+                    installation = web_pod["installation"]
+                    pod_value = web_pod["pod"]
+                    
+                    # Get full history
+                    meter_history = self.web_api.get_index_history(installation, pod_value)
+                    account_data["meter_history"] = meter_history
+                    
+                    # Get latest reading
+                    if meter_history:
+                        latest = self.web_api.get_latest_meter_reading(installation, pod_value)
+                        account_data["meter_reading"] = latest
+                        _LOGGER.debug(
+                            "Index curent pentru POD %s: %s (%s)",
+                            pod_value, latest.get("index"), latest.get("date")
+                        )
+                except Exception as err:
+                    _LOGGER.warning(
+                        "Eroare la obținerea indexului din Web Portal pentru %s: %s", 
+                        uan, err
+                    )
+            else:
+                _LOGGER.warning(
+                    "Nu am găsit POD-ul %s în datele Web Portal. "
+                    "Indexul contor nu va fi disponibil.", uan
+                )
+            
             data["accounts"].append(account_data)
         
-        _LOGGER.debug("=== iHidro Coordinator: Actualizare finalizată cu succes ===")
+        _LOGGER.debug("=== iHidro Coordinator: Actualizare finalizată cu succes (Dual API) ===")
         return data

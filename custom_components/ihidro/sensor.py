@@ -280,21 +280,28 @@ class IhidroMeterReadingSensor(IhidroBaseSensor):
     def native_value(self) -> Optional[float]:
         """Returnează indexul curent al contorului."""
         account_data = self._get_account_data()
+        
+        # PRIORITATE 1: Web Portal API (dacă există date)
+        meter_reading = account_data.get("meter_reading")
+        if meter_reading and meter_reading.get("index") is not None:
+            try:
+                return float(meter_reading["index"])
+            except (ValueError, TypeError) as err:
+                _LOGGER.debug("Eroare la parsarea indexului din Web Portal: %s", err)
+        
+        # PRIORITATE 2: Mobile API (fallback, pentru backwards compatibility)
         meter_details = account_data.get("meter_details")
-        
-        if not meter_details:
-            return None
-        
-        try:
-            # API returnează result.MeterDetails (listă de contoare)
-            result = meter_details.get("result", {})
-            meters = result.get("MeterDetails", [])
-            if meters:
-                # Folosim primul contor
-                reading_str = meters[0].get("LastReading", "0")
-                return float(reading_str)
-        except (ValueError, TypeError, KeyError) as err:
-            _LOGGER.debug("Eroare la parsarea indexului contor: %s", err)
+        if meter_details:
+            try:
+                # API returnează result.MeterDetails (listă de contoare)
+                result = meter_details.get("result", {})
+                meters = result.get("MeterDetails", [])
+                if meters:
+                    # Folosim primul contor
+                    reading_str = meters[0].get("LastReading", "0")
+                    return float(reading_str)
+            except (ValueError, TypeError, KeyError) as err:
+                _LOGGER.debug("Eroare la parsarea indexului din Mobile API: %s", err)
         
         return None
 
@@ -302,23 +309,56 @@ class IhidroMeterReadingSensor(IhidroBaseSensor):
     def extra_state_attributes(self) -> Dict[str, Any]:
         """Atribute adiționale."""
         account_data = self._get_account_data()
+        meter_reading = account_data.get("meter_reading")
+        meter_history = account_data.get("meter_history")
         meter_details = account_data.get("meter_details")
         meter_window = account_data.get("meter_window")
+        web_pod_info = account_data.get("web_pod_info")
         
         attrs = {
             ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
             ATTR_ACCOUNT_NUMBER: self._an,
         }
         
+        # Date din Web Portal API (prioritare)
+        if meter_reading:
+            attrs[ATTR_LAST_READING] = meter_reading.get("index")
+            attrs[ATTR_LAST_READING_DATE] = meter_reading.get("date")
+            attrs["reading_type"] = meter_reading.get("type")  # Regularizare/Autocitit/Estimat
+            attrs["counter_series"] = meter_reading.get("counter_series")
+            attrs["registers"] = meter_reading.get("registers", "1.8.0")
+        
+        # POD info din Web Portal
+        if web_pod_info:
+            attrs["pod"] = web_pod_info.get("pod")
+            attrs["installation"] = web_pod_info.get("installation")
+        
+        # Istoric index (primele 5 citiri)
+        if meter_history:
+            attrs["history_count"] = len(meter_history)
+            attrs["last_5_readings"] = [
+                {
+                    "index": h.get("Index"),
+                    "date": h.get("Date"),
+                    "type": h.get("ReadingType")
+                }
+                for h in meter_history[:5]
+            ]
+        
+        # Date din Mobile API (fallback)
         if meter_details:
             result = meter_details.get("result", {})
             meters = result.get("MeterDetails", [])
             if meters:
                 meter_info = meters[0]
-                attrs[ATTR_METER_NUMBER] = meter_info.get("MeterNumber")
-                attrs[ATTR_LAST_READING] = meter_info.get("LastReading")
-                attrs[ATTR_LAST_READING_DATE] = meter_info.get("LastReadingDate")
+                if ATTR_METER_NUMBER not in attrs:
+                    attrs[ATTR_METER_NUMBER] = meter_info.get("MeterNumber")
+                if ATTR_LAST_READING not in attrs:
+                    attrs[ATTR_LAST_READING] = meter_info.get("LastReading")
+                if ATTR_LAST_READING_DATE not in attrs:
+                    attrs[ATTR_LAST_READING_DATE] = meter_info.get("LastReadingDate")
         
+        # Fereastră de citire (Mobile API)
         if meter_window:
             # API returnează result.Data cu câmpuri directe
             data = meter_window.get("result", {}).get("Data", {})
