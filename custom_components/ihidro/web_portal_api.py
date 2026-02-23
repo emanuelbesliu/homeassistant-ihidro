@@ -14,6 +14,7 @@ Acest modul implementează Web Portal API pentru:
 import logging
 import requests
 import json
+import re
 import urllib3
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
@@ -57,116 +58,152 @@ class IhidroWebPortalAPI:
         self._pods_cache = []
         self._index_history_cache = {}
 
-    def _extract_csrf_token_with_browser(self) -> Tuple[str, List[Any]]:
+    def _extract_csrf_token_from_html(self) -> str:
         """
-        Extrage CSRF token folosind Playwright (browser real).
+        Extrage CSRF token din pagini ASP.NET după autentificare.
         
-        CSRF token-ul este generat CLIENT-SIDE de JavaScript după încărcarea paginii,
-        de aceea nu apare în răspunsurile HTTP. Trebuie să rulăm un browser real
-        pentru a permite JavaScript-ului să execute și să seteze token-ul.
+        Încercăm mai multe pagini pentru a găsi token-ul CSRF în HTML:
+        1. Dashboard.aspx - pagina principală după login
+        2. account.aspx - pagina de cont (știm că returnează token-ul)
+        3. IndexHistory.aspx - pagina cu istoric indexuri
         
         Returns:
-            Tuple[csrf_token, cookies]: Token-ul CSRF și cookies de sesiune
+            str: Token-ul CSRF extras din câmpul hidden #hdnCSRFToken
+            
+        Raises:
+            Exception: Dacă autentificarea eșuează sau token-ul nu poate fi găsit
         """
-        from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+        from bs4 import BeautifulSoup
         
-        _LOGGER.debug("Extracting CSRF token using Playwright browser automation...")
+        _LOGGER.debug("Extracting CSRF token from HTML pages...")
         
         try:
-            with sync_playwright() as p:
-                # Lansăm browser headless
-                browser = p.chromium.launch(
-                    headless=True,
-                    args=['--disable-blink-features=AutomationControlled']
-                )
-                
-                # Creăm context cu headers realiste
-                context = browser.new_context(
-                    user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
-                    locale='ro-RO',
-                    timezone_id='Europe/Bucharest',
-                    ignore_https_errors=True,
-                )
-                
-                page = context.new_page()
-                
+            # 1. Navigăm la pagina de login (default.aspx)
+            _LOGGER.debug("Getting login page...")
+            resp = self._session.get(
+                'https://ihidro.ro/portal/default.aspx',
+                timeout=30,
+                allow_redirects=True
+            )
+            resp.raise_for_status()
+            
+            # 2. Parsăm formularul de login pentru a extrage câmpurile ASP.NET
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            
+            # Extragem câmpurile hidden necesare pentru POST
+            viewstate = soup.find('input', {'id': '__VIEWSTATE'})
+            viewstate_gen = soup.find('input', {'id': '__VIEWSTATEGENERATOR'})
+            event_validation = soup.find('input', {'id': '__EVENTVALIDATION'})
+            
+            if not all([viewstate, viewstate_gen, event_validation]):
+                raise Exception("Could not extract ASP.NET form fields from login page")
+            
+            assert viewstate and viewstate_gen and event_validation  # Type narrowing for LSP
+            
+            _LOGGER.debug("Extracted ASP.NET form fields for login")
+            
+            # 3. Trimitem formularul de autentificare
+            login_data = {
+                '__VIEWSTATE': viewstate['value'] if viewstate and 'value' in viewstate.attrs else '',
+                '__VIEWSTATEGENERATOR': viewstate_gen['value'] if viewstate_gen and 'value' in viewstate_gen.attrs else '',
+                '__EVENTVALIDATION': event_validation['value'] if event_validation and 'value' in event_validation.attrs else '',
+                'txtLogin': self._username,
+                'txtpwd': self._password,
+                'btnlogin': 'Conectare'
+            }
+            
+            _LOGGER.debug("Submitting login form...")
+            resp = self._session.post(
+                'https://ihidro.ro/portal/default.aspx',
+                data=login_data,
+                timeout=30,
+                allow_redirects=True
+            )
+            resp.raise_for_status()
+            
+            # Verificăm dacă am fost autentificați (nu ar trebui să mai vedem formularul de login)
+            if 'txtLogin' in resp.text and 'btnlogin' in resp.text:
+                # Încă suntem pe pagina de login - autentificare eșuată
+                raise Exception("Login failed - credentials might be incorrect")
+            
+            _LOGGER.debug("Login successful, searching for CSRF token...")
+            
+            # 4. Încercăm să extragem token-ul din mai multe pagini
+            pages_to_try = [
+                ('Dashboard.aspx', 'Dashboard'),
+                ('account.aspx', 'Account'),
+                ('IndexHistory.aspx', 'Index History'),
+            ]
+            
+            for page_url, page_name in pages_to_try:
                 try:
-                    # 1. Navigăm la pagina de login (default.aspx, NU Login.aspx!)
-                    _LOGGER.debug("Navigating to login page...")
-                    page.goto('https://ihidro.ro/portal/default.aspx', wait_until='domcontentloaded', timeout=30000)
+                    _LOGGER.debug(f"Trying to extract token from {page_name}...")
+                    resp = self._session.get(
+                        f'https://ihidro.ro/portal/{page_url}',
+                        timeout=30,
+                        allow_redirects=True
+                    )
+                    resp.raise_for_status()
                     
-                    # 2. Completăm formularul de autentificare
-                    _LOGGER.debug("Filling login form...")
-                    page.fill('#txtLogin', self._username)
-                    page.fill('#txtpwd', self._password)
+                    # Parsăm HTML-ul
+                    soup = BeautifulSoup(resp.text, 'html.parser')
                     
-                    # 3. Click pe butonul de login
-                    _LOGGER.debug("Clicking login button...")
-                    page.click('#btnlogin')
+                    # Căutăm câmpul hdnCSRFToken
+                    token_field = soup.find('input', {'id': 'hdnCSRFToken'}) or \
+                                 soup.find('input', {'name': re.compile(r'hdnCSRFToken$')})
                     
-                    # 4. Navigate to Dashboard to get the session-specific CSRF token
-                    # The token on default.aspx (login page) is different from the session token
-                    _LOGGER.debug("Navigating to Dashboard to get session CSRF token...")
-                    page.goto('https://ihidro.ro/portal/Dashboard.aspx', wait_until='domcontentloaded', timeout=30000)
-                    
-                    # 5. Wait for page to fully load and JavaScript to execute
-                    _LOGGER.debug("Waiting for JavaScript to populate CSRF token...")
-                    page.wait_for_timeout(5000)  # Give plenty of time for JS to execute
-                    
-                    # 6. Extract CSRF token
-                    _LOGGER.debug("Extracting CSRF token from Dashboard...")
-                    csrf_token = page.evaluate('() => document.getElementById("hdnCSRFToken")?.value')
-                    
-                    # 5. Extragem cookies de sesiune
-                    cookies = context.cookies()
-                    _LOGGER.debug("✓ Extracted %d cookies", len(cookies))
-                    
-                    return csrf_token, cookies
-                    
-                finally:
-                    browser.close()
-                    
-        except ImportError:
-            _LOGGER.error("Playwright not installed. Install with: pip install playwright && playwright install chromium")
-            raise Exception("Playwright dependency missing. See https://playwright.dev/python/docs/intro")
+                    if token_field and token_field.get('value'):
+                        csrf_token = token_field['value']
+                        if csrf_token:  # Non-empty
+                            _LOGGER.info(f"✓ Found CSRF token in {page_name}: {csrf_token[:30]}...")
+                            return csrf_token
+                        else:
+                            _LOGGER.debug(f"{page_name} has token field but it's empty")
+                    else:
+                        _LOGGER.debug(f"{page_name} does not contain token field")
+                        
+                except Exception as e:
+                    _LOGGER.debug(f"Failed to get token from {page_name}: {e}")
+                    continue
+            
+            # Dacă ajungem aici, nu am găsit token-ul în nicio pagină
+            raise Exception(
+                "Could not find CSRF token in any page. "
+                "The token might be generated client-side by JavaScript. "
+                "Check if account has access to Web Portal."
+            )
+            
         except Exception as e:
-            _LOGGER.error("Failed to extract CSRF token with browser: %s", str(e))
+            _LOGGER.error("Failed to extract CSRF token: %s", str(e))
             raise
 
     def login(self) -> None:
         """
-        Autentificare la Web Portal iHidro folosind Playwright.
+        Autentificare la Web Portal iHidro.
         
-        CSRF token-ul este generat de JavaScript pe client, deci trebuie să folosim
-        un browser real pentru autentificare și extragere token.
+        Folosește requests + BeautifulSoup pentru:
+        1. Login prin formularul ASP.NET
+        2. Extragere CSRF token din paginile HTML după autentificare
+        3. Folosește token-ul pentru API calls ulterioare
         
-        Flow:
-        1. Playwright: Login în browser real + extrage CSRF token + cookies
-        2. Transferă cookies în requests.Session pentru API calls ulterioare
-        3. Folosește requests.Session cu CSRF token pentru toate request-urile
+        Note:
+        - CSRF token-ul poate fi în HTML sau generat de JavaScript
+        - Încercăm mai multe pagini (Dashboard, Account, IndexHistory)
+        - Dacă toate eșuează, înseamnă că token-ul este generat client-side
         """
         _LOGGER.debug("=== Web Portal: Începem autentificarea pentru '%s' ===", self._username)
         
         try:
-            # Pas 1: Folosim Playwright pentru a obține token-ul CSRF și cookies
-            csrf_token, browser_cookies = self._extract_csrf_token_with_browser()
+            # Extragem CSRF token din HTML (autentificare inclusă în proces)
+            csrf_token = self._extract_csrf_token_from_html()
             
-            # Pas 2: Transferăm cookies din browser în requests.Session
-            for cookie in browser_cookies:
-                self._session.cookies.set(
-                    name=cookie.get('name', ''),
-                    value=cookie.get('value', ''),
-                    domain=cookie.get('domain', ''),
-                    path=cookie.get('path', '/'),
-                )
-            
-            # Pas 3: Salvăm CSRF token
+            # Salvăm CSRF token
             self._csrf_token = csrf_token
             self._is_authenticated = True
             
             _LOGGER.info("✓ Autentificare Web Portal reușită pentru '%s'", self._username)
-            _LOGGER.debug("  CSRF Token: %s...", csrf_token[:30])
-            _LOGGER.debug("  Cookies transferred: %d", len(browser_cookies))
+            _LOGGER.debug("  CSRF Token: %s...", csrf_token[:30] if len(csrf_token) > 30 else csrf_token)
+            _LOGGER.debug("  Cookies: %s", list(self._session.cookies.keys()))
             
         except Exception as e:
             _LOGGER.error("Eroare la autentificare Web Portal: %s", str(e))
