@@ -60,7 +60,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         """
         Handler pentru serviciul de trimitere index.
         
-        FOLOSEȘTE WEB PORTAL API pentru trimitere!
+        FOLOSEȘTE WEB PORTAL API on-demand:
+        1. Login la Web Portal (cu 2captcha)
+        2. GetAllPODBind → găsește POD-ul
+        3. LoadW2UIGridData → obține ultimul index
+        4. SubmitSelfMeterReading → trimite noul index
         """
         utility_account_number = call.data[ATTR_UTILITY_ACCOUNT_NUMBER]
         account_number = call.data[ATTR_ACCOUNT_NUMBER]
@@ -68,25 +72,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         meter_reading = call.data["meter_reading"]
         reading_date_input = call.data.get("reading_date")
         
-        # Convertim data din format MM/DD/YYYY (Mobile API) în DD/MM/YYYY (Web Portal)
+        # Convertim data în format DD/MM/YYYY (Web Portal)
         if reading_date_input:
             try:
-                # Parsăm data (suportăm ambele formate)
                 if "/" in reading_date_input:
                     parts = reading_date_input.split("/")
                     if len(parts) == 3:
-                        # Detectăm formatul automat
                         if int(parts[0]) > 12:
-                            # Format DD/MM/YYYY
                             reading_date = reading_date_input
                         else:
-                            # Format MM/DD/YYYY - convertim
                             reading_date = f"{parts[1]}/{parts[0]}/{parts[2]}"
                     else:
                         reading_date = datetime.now().strftime("%d/%m/%Y")
                 else:
                     reading_date = datetime.now().strftime("%d/%m/%Y")
-            except:
+            except Exception:
                 reading_date = datetime.now().strftime("%d/%m/%Y")
         else:
             reading_date = datetime.now().strftime("%d/%m/%Y")
@@ -97,68 +97,75 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         
         try:
-            # Găsim POD-ul corespunzător în date
-            account_data = None
-            for acc in coordinator.data.get("accounts", []):
-                acc_info = acc.get("account_info", {})
-                if acc_info.get("UtilityAccountNumber") == utility_account_number:
-                    account_data = acc
-                    break
-            
-            if not account_data:
-                _LOGGER.error("Nu am găsit POD-ul %s în date", utility_account_number)
-                return
-            
-            # Obținem datele necesare din Web Portal
-            web_pod_info = account_data.get("web_pod_info")
-            meter_reading_data = account_data.get("meter_reading")
-            
-            if not web_pod_info:
-                _LOGGER.error(
-                    "Nu avem date Web Portal pentru POD %s. "
-                    "Asigurați-vă că integrarea este configurată corect.",
-                    utility_account_number
+            # On-demand: Login la Web Portal + fetch PODs + get latest reading + submit
+            def _do_web_portal_submit():
+                """Execută tot fluxul Web Portal sincron (rulează în executor)."""
+                web_api = coordinator.web_api
+                
+                # Step 1: Login (rezolvă captcha via 2captcha)
+                _LOGGER.info("Web Portal: Autentificare on-demand pentru submit...")
+                web_api.login()
+                
+                # Step 2: Obținem lista de POD-uri
+                pods = web_api.get_all_pods()
+                if not pods:
+                    return {"success": False, "message": "Nu s-au găsit POD-uri în Web Portal", "data": None}
+                
+                # Step 3: Găsim POD-ul corespunzător
+                target_pod = None
+                for pod in pods:
+                    if pod.get("contractAccountID") == utility_account_number:
+                        target_pod = pod
+                        break
+                
+                if not target_pod:
+                    # Dacă nu găsim după contractAccountID, luăm primul POD
+                    _LOGGER.warning(
+                        "Nu am găsit POD cu contractAccountID=%s, folosim primul POD: %s",
+                        utility_account_number, pods[0].get("pod")
+                    )
+                    target_pod = pods[0]
+                
+                pod_value = target_pod["pod"]
+                installation = target_pod["installation"]
+                
+                # Step 4: Obținem ultimul index
+                latest = web_api.get_latest_meter_reading(installation, pod_value)
+                if latest:
+                    prev_reading = int(latest.get("index", 0))
+                    counter_series = latest.get("counter_series", meter_number)
+                else:
+                    _LOGGER.warning("Nu am găsit index anterior, folosim 0")
+                    prev_reading = 0
+                    counter_series = meter_number
+                
+                _LOGGER.info(
+                    "Web Portal submit: POD=%s, Installation=%s, CounterSeries=%s, "
+                    "PrevReading=%s, NewReading=%s",
+                    pod_value, installation, counter_series, prev_reading, int(meter_reading)
                 )
-                return
+                
+                # Step 5: Trimitem indexul
+                return web_api.submit_meter_reading(
+                    pod=pod_value,
+                    installation=installation,
+                    utility_account_number=utility_account_number,
+                    counter_series=counter_series,
+                    prev_reading=prev_reading,
+                    new_reading=int(meter_reading),
+                    reading_date=reading_date,
+                )
             
-            if not meter_reading_data:
-                _LOGGER.warning("Nu avem index anterior pentru POD %s", utility_account_number)
-                prev_reading = 0
-            else:
-                prev_reading = int(meter_reading_data.get("index", 0))
-            
-            # Date pentru submit
-            pod = web_pod_info["pod"]
-            installation = web_pod_info["installation"]
-            counter_series = meter_reading_data.get("counter_series") if meter_reading_data else meter_number
-            
-            _LOGGER.debug(
-                "Date pentru submit: POD=%s, Installation=%s, CounterSeries=%s, PrevReading=%s",
-                pod, installation, counter_series, prev_reading
-            )
-            
-            # Trimitem indexul prin Web Portal API
-            result = await hass.async_add_executor_job(
-                coordinator.web_api.submit_meter_reading,
-                pod,
-                installation,
-                utility_account_number,
-                counter_series,
-                prev_reading,
-                int(meter_reading),
-                reading_date,
-                None  # additional_data - folosim defaults
-            )
+            result = await hass.async_add_executor_job(_do_web_portal_submit)
             
             if result.get("success"):
-                _LOGGER.info("✅ Index trimis cu succes prin Web Portal: %s", result.get("message"))
-                # Refresh data după submit
+                _LOGGER.info("Index trimis cu succes prin Web Portal: %s", result.get("message"))
                 await coordinator.async_request_refresh()
             else:
-                _LOGGER.error("❌ Eroare la trimiterea indexului: %s", result.get("message"))
+                _LOGGER.error("Eroare la trimiterea indexului: %s", result.get("message"))
                 
         except Exception as err:
-            _LOGGER.error("❌ Excepție la trimiterea indexului: %s", err, exc_info=True)
+            _LOGGER.error("Exceptie la trimiterea indexului: %s", err, exc_info=True)
     
     hass.services.async_register(
         DOMAIN,

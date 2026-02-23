@@ -75,16 +75,15 @@ class IhidroDataUpdateCoordinator(DataUpdateCoordinator):
         """
         Fetch sincron al datelor de la API (rulează în executor).
         
-        Folosește DUAL API:
-        - Mobile API: pentru facturi, balanță, plăți (OBLIGATORIU)
-        - Web Portal API: pentru index contor și istoric (OPȚIONAL - poate eșua)
+        Folosește DOAR Mobile API pentru polling periodic.
+        Web Portal API se folosește doar on-demand la submit (din __init__.py service handler).
         
         Returns:
             Dict structurat cu toate datele pentru toate POD-urile
         """
-        _LOGGER.debug("=== iHidro Coordinator: Începem actualizarea datelor (Dual API) ===")
+        _LOGGER.debug("=== iHidro Coordinator: Începem actualizarea datelor (Mobile API) ===")
         
-        # Autentificare Mobile API (dacă e necesar) - OBLIGATORIU
+        # Autentificare Mobile API (dacă e necesar)
         self.api.login_if_needed()
         
         # Obținem lista de POD-uri din Mobile API
@@ -93,26 +92,6 @@ class IhidroDataUpdateCoordinator(DataUpdateCoordinator):
         if not accounts:
             _LOGGER.warning("Nu s-au găsit POD-uri pentru utilizatorul curent")
             return {"accounts": []}
-        
-        # Autentificare Web Portal API (OPȚIONAL - continuăm dacă eșuează)
-        web_pods_dict = {}
-        web_portal_available = False
-        try:
-            self.web_api.login_if_needed()
-            web_pods = self.web_api.get_all_pods()
-            web_pods_dict = {pod["pod"]: pod for pod in web_pods}  # Index by POD number
-            web_portal_available = True
-            _LOGGER.info("Web Portal API: Autentificare reușită, date disponibile")
-        except Exception as err:
-            _LOGGER.warning(
-                "Web Portal API: Autentificare eșuată (contoare clasice vor afișa doar date Mobile API). "
-                "Eroare: %s", err
-            )
-            _LOGGER.info(
-                "Web Portal este blocat de reCAPTCHA și nu poate fi accesat automat. "
-                "Integrarea va funcționa doar cu Mobile API (facturi, balanță, plăți). "
-                "Senzorul de index contor va folosi date Mobile API (dacă există contor smart)."
-            )
         
         _LOGGER.debug("Actualizăm date pentru %d POD-uri", len(accounts))
         
@@ -123,7 +102,7 @@ class IhidroDataUpdateCoordinator(DataUpdateCoordinator):
             "last_update": datetime.now().isoformat(),
         }
         
-        # Pentru fiecare POD, obținem toate datele
+        # Pentru fiecare POD, obținem datele din Mobile API
         for account in accounts:
             uan = account["UtilityAccountNumber"]
             an = account["AccountNumber"]
@@ -138,9 +117,6 @@ class IhidroDataUpdateCoordinator(DataUpdateCoordinator):
                 "usage_history": None,
                 "meter_details": None,
                 "meter_window": None,
-                "web_pod_info": None,  # NEW: Date din Web Portal
-                "meter_reading": None,  # NEW: Index curent din Web Portal
-                "meter_history": None,  # NEW: Istoric index din Web Portal
             }
             
             # Factură curentă (Mobile API)
@@ -167,7 +143,7 @@ class IhidroDataUpdateCoordinator(DataUpdateCoordinator):
             except Exception as err:
                 _LOGGER.warning("Eroare la obținerea istoricului de consum pentru %s: %s", uan, err)
             
-            # Detalii contor (Mobile API - pentru compatibilitate)
+            # Detalii contor (Mobile API)
             try:
                 account_data["meter_details"] = self.api.get_multi_meter_details(uan, an)
             except Exception as err:
@@ -179,53 +155,7 @@ class IhidroDataUpdateCoordinator(DataUpdateCoordinator):
             except Exception as err:
                 _LOGGER.warning("Eroare la obținerea ferestrei de citire pentru %s: %s", uan, err)
             
-            # === WEB PORTAL API DATA (OPȚIONAL) ===
-            # Încercăm să obținem date din Web Portal doar dacă autentificarea a reușit
-            if web_portal_available:
-                # Găsim POD-ul corespunzător în datele Web Portal
-                # Căutăm după UtilityAccountNumber sau Customer Name
-                web_pod = None
-                for pod_num, pod_data in web_pods_dict.items():
-                    # Match by contract account ID if available
-                    if pod_data.get("contractAccountID") == uan:
-                        web_pod = pod_data
-                        break
-                
-                if web_pod:
-                    account_data["web_pod_info"] = web_pod
-                    
-                    # Index contor curent și istoric (Web Portal API)
-                    try:
-                        installation = web_pod["installation"]
-                        pod_value = web_pod["pod"]
-                        
-                        # Get full history
-                        meter_history = self.web_api.get_index_history(installation, pod_value)
-                        account_data["meter_history"] = meter_history
-                        
-                        # Get latest reading
-                        if meter_history:
-                            latest = self.web_api.get_latest_meter_reading(installation, pod_value)
-                            account_data["meter_reading"] = latest
-                            _LOGGER.debug(
-                                "Index curent pentru POD %s: %s (%s)",
-                                pod_value, latest.get("index"), latest.get("date")
-                            )
-                    except Exception as err:
-                        _LOGGER.warning(
-                            "Eroare la obținerea indexului din Web Portal pentru %s: %s", 
-                            uan, err
-                        )
-                else:
-                    _LOGGER.debug(
-                        "Nu am găsit POD-ul %s în datele Web Portal.", uan
-                    )
-            else:
-                _LOGGER.debug(
-                    "Web Portal API indisponibil - folosim doar date Mobile API pentru POD %s", uan
-                )
-            
             data["accounts"].append(account_data)
         
-        _LOGGER.debug("=== iHidro Coordinator: Actualizare finalizată cu succes (Dual API) ===")
+        _LOGGER.debug("=== iHidro Coordinator: Actualizare finalizată cu succes ===")
         return data
