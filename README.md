@@ -1,10 +1,10 @@
 # 🏠 iHidro - Integrare Home Assistant pentru Hidroelectrica România
 
-[![Version](https://img.shields.io/badge/version-1.0.5-blue.svg)](https://github.com/emanuelbesliu/ihidro)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com/emanuelbesliu/ihidro)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.1+-blue.svg)](https://www.home-assistant.io/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-> **🚧 v1.1.0 Work in Progress:** Dual API support (Mobile + Web Portal) is being implemented to enable meter reading sensors for classic meters. See [WEB_PORTAL_CSRF_ISSUE.md](../WEB_PORTAL_CSRF_ISSUE.md) for details. Current stable version: **v1.0.5**
+> **✨ v1.1.0 Release:** Dual API support (Mobile + Web Portal) with Playwright-based authentication! This version enables meter reading sensors for both smart and classic meters.
 
 Integrare personalizată Home Assistant pentru monitorizarea și gestionarea conturilor de energie electrică de la **Hidroelectrica România** (ihidro.ro).
 
