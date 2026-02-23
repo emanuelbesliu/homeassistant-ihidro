@@ -183,7 +183,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coordinator = hass.data[DOMAIN].pop(entry.entry_id)
         # Închidem sesiunile API (ambele)
         await hass.async_add_executor_job(coordinator.api.close)
-        await hass.async_add_executor_job(coordinator.web_api.close)
+        try:
+            await hass.async_add_executor_job(coordinator.web_api.close)
+        except Exception:
+            _LOGGER.debug("Web Portal API close failed (non-fatal)")
     
     # Dezînregistrăm serviciul doar dacă nu mai sunt alte entry-uri
     if not hass.data[DOMAIN]:

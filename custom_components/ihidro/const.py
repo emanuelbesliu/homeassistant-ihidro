@@ -26,6 +26,11 @@ MAX_UPDATE_INTERVAL = 86400     # 24 ore
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
 CONF_UPDATE_INTERVAL = "update_interval"
+CONF_TWOCAPTCHA_API_KEY = "twocaptcha_api_key"
+
+# Web Portal
+WEB_PORTAL_BASE_URL = "https://ihidro.ro/portal"
+RECAPTCHA_SITE_KEY = "6LdWVgYfAAAAAOtv1JCMvOVYagKN_I7Tt8EMCBWx"
 
 # Servicii
 SERVICE_SUBMIT_METER_READING = "submit_meter_reading"

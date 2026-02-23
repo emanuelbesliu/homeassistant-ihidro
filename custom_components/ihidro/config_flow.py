@@ -15,6 +15,7 @@ from .const import (
     CONF_USERNAME,
     CONF_PASSWORD,
     CONF_UPDATE_INTERVAL,
+    CONF_TWOCAPTCHA_API_KEY,
     DEFAULT_UPDATE_INTERVAL,
     MIN_UPDATE_INTERVAL,
     MAX_UPDATE_INTERVAL,
@@ -59,6 +60,9 @@ class IhidroConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_UPDATE_INTERVAL: user_input.get(
                             CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL
                         ),
+                        CONF_TWOCAPTCHA_API_KEY: user_input.get(
+                            CONF_TWOCAPTCHA_API_KEY, ""
+                        ),
                     },
                 )
                 
@@ -70,6 +74,7 @@ class IhidroConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         data_schema = vol.Schema({
             vol.Required(CONF_USERNAME): str,
             vol.Required(CONF_PASSWORD): str,
+            vol.Optional(CONF_TWOCAPTCHA_API_KEY, default=""): str,
             vol.Optional(
                 CONF_UPDATE_INTERVAL,
                 default=DEFAULT_UPDATE_INTERVAL
@@ -114,7 +119,16 @@ class IhidroOptionsFlowHandler(config_entries.OptionsFlow):
             self.config_entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
         )
 
+        current_twocaptcha_key = self.config_entry.options.get(
+            CONF_TWOCAPTCHA_API_KEY,
+            self.config_entry.data.get(CONF_TWOCAPTCHA_API_KEY, "")
+        )
+
         options_schema = vol.Schema({
+            vol.Optional(
+                CONF_TWOCAPTCHA_API_KEY,
+                default=current_twocaptcha_key
+            ): str,
             vol.Optional(
                 CONF_UPDATE_INTERVAL,
                 default=current_interval

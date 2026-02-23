@@ -17,6 +17,7 @@ from .const import (
     CONF_USERNAME,
     CONF_PASSWORD,
     CONF_UPDATE_INTERVAL,
+    CONF_TWOCAPTCHA_API_KEY,
     DEFAULT_UPDATE_INTERVAL,
 )
 
@@ -39,6 +40,8 @@ class IhidroDataUpdateCoordinator(DataUpdateCoordinator):
         self.web_api = IhidroWebPortalAPI(
             username=entry.data[CONF_USERNAME],
             password=entry.data[CONF_PASSWORD],
+            twocaptcha_api_key=entry.data.get(CONF_TWOCAPTCHA_API_KEY, "")
+                or entry.options.get(CONF_TWOCAPTCHA_API_KEY, ""),
         )
         
         # Intervalul de actualizare (implicit 1 oră)

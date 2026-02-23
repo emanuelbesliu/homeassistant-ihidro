@@ -2,19 +2,20 @@
   "config": {
     "step": {
       "user": {
-        "title": "Configurare iHidro România",
-        "description": "Introduceți datele de autentificare pentru contul dumneavoastră iHidro.ro (Hidroelectrica România).",
+        "title": "Configurare iHidro Romania",
+        "description": "Introduceti datele de autentificare pentru contul dumneavoastra iHidro.ro (Hidroelectrica Romania). Cheia API 2captcha este necesara pentru trimiterea indexului prin portalul web.",
         "data": {
           "username": "Nume utilizator (email sau cod client)",
-          "password": "Parolă",
+          "password": "Parola",
+          "twocaptcha_api_key": "Cheie API 2captcha (pentru trimitere index)",
           "update_interval": "Interval actualizare (secunde)"
         }
       }
     },
     "error": {
-      "invalid_auth": "Date de autentificare invalide. Verificați username-ul și parola.",
-      "cannot_connect": "Nu se poate conecta la serverul iHidro. Verificați conexiunea la internet.",
-      "unknown": "Eroare necunoscută. Verificați logurile Home Assistant."
+      "invalid_auth": "Date de autentificare invalide. Verificati username-ul si parola.",
+      "cannot_connect": "Nu se poate conecta la serverul iHidro. Verificati conexiunea la internet.",
+      "unknown": "Eroare necunoscuta. Verificati logurile Home Assistant."
     },
     "abort": {
       "already_configured": "Acest cont iHidro este deja configurat."
@@ -23,9 +24,10 @@
   "options": {
     "step": {
       "init": {
-        "title": "Opțiuni iHidro",
-        "description": "Configurați opțiunile pentru integrarea iHidro.",
+        "title": "Optiuni iHidro",
+        "description": "Configurati optiunile pentru integrarea iHidro.",
         "data": {
+          "twocaptcha_api_key": "Cheie API 2captcha (pentru trimitere index)",
           "update_interval": "Interval actualizare (secunde)"
         }
       }

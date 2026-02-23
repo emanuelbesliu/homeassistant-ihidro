@@ -3,10 +3,11 @@
     "step": {
       "user": {
         "title": "Configure iHidro Romania",
-        "description": "Enter your iHidro.ro (Hidroelectrica Romania) account credentials.",
+        "description": "Enter your iHidro.ro (Hidroelectrica Romania) account credentials. The 2captcha API key is needed for meter reading submission via the web portal.",
         "data": {
           "username": "Username (email or client code)",
           "password": "Password",
+          "twocaptcha_api_key": "2captcha API Key (for meter submission)",
           "update_interval": "Update interval (seconds)"
         }
       }
@@ -26,6 +27,7 @@
         "title": "iHidro Options",
         "description": "Configure options for the iHidro integration.",
         "data": {
+          "twocaptcha_api_key": "2captcha API Key (for meter submission)",
           "update_interval": "Update interval (seconds)"
         }
       }

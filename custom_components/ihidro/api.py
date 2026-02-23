@@ -82,7 +82,7 @@ class IhidroAPI:
                 "SourceType": "0",
                 "Content-Type": "application/json",
                 "Host": "hidroelectrica-svc.smartcmobile.com",
-                "User-Agent": "iHidro-HomeAssistant/1.0",
+                "User-Agent": "okhttp/4.9.1",
             },
             descriere="GetId - Obținere credențiale inițiale"
         )
@@ -97,7 +97,7 @@ class IhidroAPI:
             "SourceType": "0",
             "Content-Type": "application/json",
             "Host": "hidroelectrica-svc.smartcmobile.com",
-            "User-Agent": "iHidro-HomeAssistant/1.0",
+            "User-Agent": "okhttp/4.9.1",
             "Authorization": f"Basic {auth}"
         }
         login_payload = {
@@ -149,7 +149,7 @@ class IhidroAPI:
             "SourceType": "1",
             "Content-Type": "application/json",
             "Host": "hidroelectrica-svc.smartcmobile.com",
-            "User-Agent": "iHidro-HomeAssistant/1.0",
+            "User-Agent": "okhttp/4.9.1",
             "Authorization": f"Basic {encoded_auth}"
         }
 
