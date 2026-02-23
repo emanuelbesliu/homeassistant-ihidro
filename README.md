@@ -1,10 +1,10 @@
 # 🏠 iHidro - Integrare Home Assistant pentru Hidroelectrica România
 
-[![Version](https://img.shields.io/badge/version-1.1.1-blue.svg)](https://github.com/emanuelbesliu/ihidro)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com/emanuelbesliu/ihidro)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.1+-blue.svg)](https://www.home-assistant.io/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-> **✨ v1.1.1 Release:** Dual API support (Mobile + Web Portal) using pure Python! No browser dependencies required.
+> **✨ v1.2.0 Release:** Stable Mobile API integration with graceful Web Portal fallback
 
 Integrare personalizată Home Assistant pentru monitorizarea și gestionarea conturilor de energie electrică de la **Hidroelectrica România** (ihidro.ro).
 
@@ -268,6 +268,26 @@ Poți accesa aceste atribute în automatizări:
 ```
 
 ## 🐛 Troubleshooting
+
+### ⚠️ Web Portal API Limitation (Important)
+
+**Current Status**: Web Portal API (ihidro.ro/portal) is **not accessible** due to Google reCAPTCHA protection.
+
+**Impact**:
+- ✅ **Mobile API works perfectly**: Bills, balance, payments, bill history - all functional
+- ⚠️ **Web Portal API blocked**: Cannot access meter reading data from Web Portal for classic (non-smart) meters
+- 🔄 **Smart meters still work**: If you have an AMI smart meter, index data comes from Mobile API
+
+**What this means for you**:
+- Integration **works normally** for viewing bills, balance, and payments
+- **Classic meter readings** (contoare clasice) will show "Unknown" for `sensor.ihidro_index_contor_*`
+- **Smart meter readings** (contoare AMI) still work through Mobile API
+- **Solution**: Use manual index input with helper - see [SOLUTIE_INDEX_MANUAL.md](SOLUTIE_INDEX_MANUAL.md)
+
+**Technical Details**:
+The Web Portal login requires solving a Google reCAPTCHA challenge, which cannot be automated programmatically (against Google's TOS). The integration attempts to access Web Portal but gracefully falls back to Mobile API only if authentication fails. This is logged as a warning but does not prevent the integration from working with Mobile API features.
+
+**Future**: We're monitoring for alternative authentication methods or API endpoints that don't require reCAPTCHA.
 
 ### Eroare de Autentificare
 
