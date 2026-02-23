@@ -123,9 +123,17 @@ class IhidroAPI:
         )
 
         # Extragem datele din răspuns
-        self._validate_user_login_data = resp_login["result"]["Data"].get("Table", [])
+        response_data = resp_login.get("result", {}).get("Data", {})
+        _LOGGER.debug("ValidateUserLogin response Data: %s", response_data)
+        
+        self._validate_user_login_data = response_data.get("Table", [])
         if not self._validate_user_login_data:
-            raise Exception("Eroare autentificare: Lipsește 'Table' din răspuns")
+            # Log full response for debugging
+            _LOGGER.error("Login response structure: %s", json.dumps(resp_login, indent=2))
+            raise Exception(
+                f"Eroare autentificare: Lipsește 'Table' din răspuns. "
+                f"Response keys: {list(response_data.keys())}"
+            )
 
         first_user_entry = self._validate_user_login_data[0]
         self._user_id = first_user_entry["UserID"]
