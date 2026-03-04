@@ -1,11 +1,15 @@
 {
   "domain": "ihidro",
   "name": "iHidro Romania",
-  "codeowners": ["@emanuelbesliu"],
+  "codeowners": [
+    "@emanuelbesliu"
+  ],
   "config_flow": true,
   "documentation": "https://github.com/emanuelbesliu/homeassistant-ihidro",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/emanuelbesliu/homeassistant-ihidro/issues",
-  "requirements": ["requests>=2.31.0", "beautifulsoup4>=4.12.0"],
-  "version": "1.3.1"
+  "requirements": [
+    "requests>=2.31.0"
+  ],
+  "version": "1.3.2"
 }
