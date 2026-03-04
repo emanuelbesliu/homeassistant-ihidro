@@ -1,0 +1,8 @@
+# iHidro Romania Home Assistant Integration Dependencies
+# These dependencies must be kept in sync with manifest.json
+
+# HTTP client for synchronous requests
+requests>=2.31.0
+
+# HTML parsing library
+beautifulsoup4>=4.12.0
