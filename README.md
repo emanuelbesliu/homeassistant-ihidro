@@ -377,3 +377,4 @@ MIT License - Vezi [LICENSE](LICENSE) pentru detalii.
 **🔌 Dezvoltat cu ❤️ pentru comunitatea Home Assistant România**
 
 *Această integrare nu este afiliată oficial cu Hidroelectrica România.*
+# Test dependency update
