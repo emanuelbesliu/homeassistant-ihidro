@@ -1,10 +1,10 @@
 # 🏠 iHidro - Integrare Home Assistant pentru Hidroelectrica România
 
-[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com/emanuelbesliu/ihidro)
+[![GitHub Release](https://img.shields.io/github/v/release/emanuelbesliu/homeassistant-ihidro)](https://github.com/emanuelbesliu/homeassistant-ihidro/releases/latest)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.1+-blue.svg)](https://www.home-assistant.io/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License](https://img.shields.io/github/license/emanuelbesliu/homeassistant-ihidro)](LICENSE)
 
-> **✨ v1.2.0 Release:** Stable Mobile API integration with graceful Web Portal fallback
+> **✨ Stable Release** - Mobile API integration with graceful Web Portal fallback
 
 Integrare personalizată Home Assistant pentru monitorizarea și gestionarea conturilor de energie electrică de la **Hidroelectrica România** (ihidro.ro).
 
