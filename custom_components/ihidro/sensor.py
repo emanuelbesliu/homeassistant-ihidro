@@ -35,6 +35,29 @@ from .coordinator import IhidroDataUpdateCoordinator
 _LOGGER = logging.getLogger(__name__)
 
 
+def _parse_romanian_number(value: str) -> float:
+    """Parse a Romanian-formatted number string to float.
+
+    Romanian format uses comma as decimal separator and optionally dot as
+    thousands separator.  Examples:
+        "78,10"     → 78.10
+        "1.206,32"  → 1206.32
+        "206,32"    → 206.32
+        "0,00"      → 0.0
+
+    Also strips non-numeric prefixes/suffixes like "RON".
+    """
+    s = str(value).strip()
+    # Remove any currency text
+    for token in ("RON", "LEI", "EUR"):
+        s = s.replace(token, "")
+    s = s.strip()
+    # Romanian: dot is thousands separator, comma is decimal separator
+    # Remove dots (thousands), replace comma with dot (decimal)
+    s = s.replace(".", "").replace(",", ".")
+    return float(s)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -166,9 +189,7 @@ class IhidroCurrentBalanceSensor(IhidroBaseSensor):
             # API returnează direct result.rembalance (nu result.Data.Table)
             result = current_bill.get("result", {})
             rembalance_str = result.get("rembalance", "0,00")
-            # Curățăm string-ul (format românesc: virgulă ca separator zecimal)
-            rembalance_str = str(rembalance_str).replace(",", ".").strip()
-            return float(rembalance_str)
+            return _parse_romanian_number(rembalance_str)
         except (ValueError, TypeError, KeyError) as err:
             _LOGGER.debug("Eroare la parsarea soldului curent: %s", err)
         
@@ -476,9 +497,7 @@ class IhidroLastPaymentSensor(IhidroBaseSensor):
                 # Plățile sunt sortate descrescător după dată, prima e cea mai recentă
                 last_payment = payments[0]
                 amount_str = last_payment.get("amount", "0")
-                # Curățăm string-ul (poate conține "RON", virgule, etc.)
-                amount_str = str(amount_str).replace("RON", "").replace(",", "").strip()
-                return float(amount_str)
+                return _parse_romanian_number(amount_str)
         except (ValueError, TypeError, KeyError) as err:
             _LOGGER.debug("Eroare la parsarea ultimei plăți: %s", err)
         

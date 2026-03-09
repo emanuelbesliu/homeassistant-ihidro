@@ -133,6 +133,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 prev_reading = 0
                 counter_series = meter_number
             
+            # Step 3b: Get additional fields from raw index history
+            # The submit payload needs distCustomer, distCustomerId, etc.
+            # which are available in the raw LoadW2UIGridData response.
+            additional_data = {}
+            raw_history = web_api.get_cached_index_history(installation, pod_value)
+            if raw_history:
+                first = raw_history[0]
+                additional_data = {
+                    "registerCat": first.get("Registers", "1.8.0"),
+                    "distributor": first.get("Distributor", "DELGAZ GRID"),
+                    "meterInterval": first.get("MeterInterval", "lunar"),
+                    "supplier": first.get("Supplier", "HE"),
+                    "distCustomer": first.get("DistCustomer", ""),
+                    "distCustomerId": first.get("DistCustomerId", ""),
+                    "distContract": first.get("DistContract", ""),
+                    "distContractDate": first.get("DistContractDate", ""),
+                }
+            
             _LOGGER.info(
                 "Web Portal submit: POD=%s, Installation=%s, CounterSeries=%s, "
                 "PrevReading=%s, NewReading=%s",
@@ -148,6 +166,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 prev_reading=prev_reading,
                 new_reading=int(meter_reading),
                 reading_date=reading_date,
+                additional_data=additional_data if additional_data else None,
             )
             
             if result.get("success"):
