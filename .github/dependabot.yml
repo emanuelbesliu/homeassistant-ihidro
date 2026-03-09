@@ -29,3 +29,18 @@ updates:
       - "github-actions"
     commit-message:
       prefix: "ci(deps)"
+
+  # Monitor Docker base image
+  - package-ecosystem: "docker"
+    directory: "/browser-service"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    assignees:
+      - "emanuelbesliu"
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "ci(deps)"

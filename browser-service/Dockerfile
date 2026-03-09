@@ -1,5 +1,19 @@
 FROM python:3.11-slim-bookworm
 
+# OCI image labels (build-time args populated by CI)
+ARG BUILD_DATE
+ARG VCS_REF
+ARG VERSION
+LABEL org.opencontainers.image.title="ihidro-browser" \
+      org.opencontainers.image.description="Headless browser microservice for iHidro web portal scraping via nodriver" \
+      org.opencontainers.image.url="https://github.com/emanuelbesliu/homeassistant-ihidro" \
+      org.opencontainers.image.source="https://github.com/emanuelbesliu/homeassistant-ihidro" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.vendor="emanuelbesliu"
+
 # Install Chromium and dependencies (using default Debian repos)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium \
