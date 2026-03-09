@@ -60,11 +60,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         """
         Handler pentru serviciul de trimitere index.
         
-        FOLOSEȘTE WEB PORTAL API on-demand:
-        1. Login la Web Portal (cu 2captcha)
-        2. GetAllPODBind → găsește POD-ul
-        3. LoadW2UIGridData → obține ultimul index
-        4. SubmitSelfMeterReading → trimite noul index
+        FOLOSEȘTE WEB PORTAL API (async, via ihidro-browser microservice):
+        1. scrape_all() → login + fetch PODs + index history
+        2. submit_meter_reading() → login + submit
         """
         utility_account_number = call.data[ATTR_UTILITY_ACCOUNT_NUMBER]
         account_number = call.data[ATTR_ACCOUNT_NUMBER]
@@ -96,67 +94,61 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             meter_reading, meter_number, utility_account_number, account_number, reading_date
         )
         
+        web_api = coordinator.web_api
+        
+        if not web_api.is_configured:
+            _LOGGER.error(
+                "Browser service URL is not configured. "
+                "Set it in the iHidro integration options."
+            )
+            return
+        
         try:
-            # On-demand: Login la Web Portal + fetch PODs + get latest reading + submit
-            def _do_web_portal_submit():
-                """Execută tot fluxul Web Portal sincron (rulează în executor)."""
-                web_api = coordinator.web_api
-                
-                # Step 1: Login (rezolvă captcha via 2captcha)
-                _LOGGER.info("Web Portal: Autentificare on-demand pentru submit...")
-                web_api.login()
-                
-                # Step 2: Obținem lista de POD-uri
-                pods = web_api.get_all_pods()
-                if not pods:
-                    return {"success": False, "message": "Nu s-au găsit POD-uri în Web Portal", "data": None}
-                
-                # Step 3: Găsim POD-ul corespunzător
-                target_pod = None
-                for pod in pods:
-                    if pod.get("contractAccountID") == utility_account_number:
-                        target_pod = pod
-                        break
-                
-                if not target_pod:
-                    # Dacă nu găsim după contractAccountID, luăm primul POD
-                    _LOGGER.warning(
-                        "Nu am găsit POD cu contractAccountID=%s, folosim primul POD: %s",
-                        utility_account_number, pods[0].get("pod")
-                    )
-                    target_pod = pods[0]
-                
-                pod_value = target_pod["pod"]
-                installation = target_pod["installation"]
-                
-                # Step 4: Obținem ultimul index
-                latest = web_api.get_latest_meter_reading(installation, pod_value)
-                if latest:
-                    prev_reading = int(latest.get("index", 0))
-                    counter_series = latest.get("counter_series", meter_number)
-                else:
-                    _LOGGER.warning("Nu am găsit index anterior, folosim 0")
-                    prev_reading = 0
-                    counter_series = meter_number
-                
-                _LOGGER.info(
-                    "Web Portal submit: POD=%s, Installation=%s, CounterSeries=%s, "
-                    "PrevReading=%s, NewReading=%s",
-                    pod_value, installation, counter_series, prev_reading, int(meter_reading)
-                )
-                
-                # Step 5: Trimitem indexul
-                return web_api.submit_meter_reading(
-                    pod=pod_value,
-                    installation=installation,
-                    utility_account_number=utility_account_number,
-                    counter_series=counter_series,
-                    prev_reading=prev_reading,
-                    new_reading=int(meter_reading),
-                    reading_date=reading_date,
-                )
+            # Step 1: Scrape all data (login + fetch PODs + index history)
+            _LOGGER.info("Web Portal: Fetching POD data via browser service...")
+            await web_api.scrape_all()
             
-            result = await hass.async_add_executor_job(_do_web_portal_submit)
+            pods = web_api.get_cached_pods()
+            if not pods:
+                _LOGGER.error("Nu s-au găsit POD-uri în Web Portal")
+                return
+            
+            # Step 2: Find the target POD
+            # Use first POD (single-POD account) or match by installation/pod
+            target_pod = pods[0]
+            pod_value = target_pod.get("pod", "")
+            installation = target_pod.get("installation", "")
+            
+            _LOGGER.debug(
+                "Using POD: %s, Installation: %s", pod_value, installation
+            )
+            
+            # Step 3: Get latest reading from cache
+            latest = web_api.get_cached_latest_reading(installation, pod_value)
+            if latest:
+                prev_reading = int(latest.get("index", 0))
+                counter_series = latest.get("counter_series", meter_number)
+            else:
+                _LOGGER.warning("Nu am găsit index anterior, folosim 0")
+                prev_reading = 0
+                counter_series = meter_number
+            
+            _LOGGER.info(
+                "Web Portal submit: POD=%s, Installation=%s, CounterSeries=%s, "
+                "PrevReading=%s, NewReading=%s",
+                pod_value, installation, counter_series, prev_reading, int(meter_reading)
+            )
+            
+            # Step 4: Submit the reading (async)
+            result = await web_api.submit_meter_reading(
+                pod=pod_value,
+                installation=installation,
+                utility_account_number=utility_account_number,
+                counter_series=counter_series,
+                prev_reading=prev_reading,
+                new_reading=int(meter_reading),
+                reading_date=reading_date,
+            )
             
             if result.get("success"):
                 _LOGGER.info("Index trimis cu succes prin Web Portal: %s", result.get("message"))
@@ -188,10 +180,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         # Ștergem coordinator-ul din hass.data
         coordinator = hass.data[DOMAIN].pop(entry.entry_id)
-        # Închidem sesiunile API (ambele)
+        # Închidem sesiunea Mobile API (sync — in executor)
         await hass.async_add_executor_job(coordinator.api.close)
+        # Închidem Web Portal API (async — no-op but clean)
         try:
-            await hass.async_add_executor_job(coordinator.web_api.close)
+            await coordinator.web_api.close()
         except Exception:
             _LOGGER.debug("Web Portal API close failed (non-fatal)")
     

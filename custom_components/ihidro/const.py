@@ -26,11 +26,13 @@ MAX_UPDATE_INTERVAL = 86400     # 24 ore
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
 CONF_UPDATE_INTERVAL = "update_interval"
-CONF_TWOCAPTCHA_API_KEY = "twocaptcha_api_key"
+CONF_BROWSER_SERVICE_URL = "browser_service_url"
 
-# Web Portal
+# Browser service (ihidro-browser microservice)
+DEFAULT_BROWSER_SERVICE_URL = "http://10.0.102.10:8193"
+
+# Web Portal (reference only — accessed via browser service)
 WEB_PORTAL_BASE_URL = "https://ihidro.ro/portal"
-RECAPTCHA_SITE_KEY = "6LdWVgYfAAAAAOtv1JCMvOVYagKN_I7Tt8EMCBWx"
 
 # Servicii
 SERVICE_SUBMIT_METER_READING = "submit_meter_reading"

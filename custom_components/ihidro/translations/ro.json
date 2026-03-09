@@ -3,11 +3,11 @@
     "step": {
       "user": {
         "title": "Configurare iHidro Romania",
-        "description": "Introduceti datele de autentificare pentru contul dumneavoastra iHidro.ro (Hidroelectrica Romania). Cheia API 2captcha este necesara pentru trimiterea indexului prin portalul web.",
+        "description": "Introduceti datele de autentificare pentru contul dumneavoastra iHidro.ro (Hidroelectrica Romania). URL-ul serviciului browser indica microserviciul ihidro-browser folosit pentru trimiterea indexului prin portalul web.",
         "data": {
           "username": "Nume utilizator (email sau cod client)",
           "password": "Parola",
-          "twocaptcha_api_key": "Cheie API 2captcha (pentru trimitere index)",
+          "browser_service_url": "URL Serviciu Browser (pentru trimitere index)",
           "update_interval": "Interval actualizare (secunde)"
         }
       }
@@ -27,7 +27,7 @@
         "title": "Optiuni iHidro",
         "description": "Configurati optiunile pentru integrarea iHidro.",
         "data": {
-          "twocaptcha_api_key": "Cheie API 2captcha (pentru trimitere index)",
+          "browser_service_url": "URL Serviciu Browser (pentru trimitere index)",
           "update_interval": "Interval actualizare (secunde)"
         }
       }

@@ -17,8 +17,9 @@ from .const import (
     CONF_USERNAME,
     CONF_PASSWORD,
     CONF_UPDATE_INTERVAL,
-    CONF_TWOCAPTCHA_API_KEY,
+    CONF_BROWSER_SERVICE_URL,
     DEFAULT_UPDATE_INTERVAL,
+    DEFAULT_BROWSER_SERVICE_URL,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,11 +38,17 @@ class IhidroDataUpdateCoordinator(DataUpdateCoordinator):
             password=entry.data[CONF_PASSWORD],
         )
         
+        # Browser service URL: check options first, then data, then default
+        browser_service_url = (
+            entry.options.get(CONF_BROWSER_SERVICE_URL)
+            or entry.data.get(CONF_BROWSER_SERVICE_URL)
+            or DEFAULT_BROWSER_SERVICE_URL
+        )
+        
         self.web_api = IhidroWebPortalAPI(
             username=entry.data[CONF_USERNAME],
             password=entry.data[CONF_PASSWORD],
-            twocaptcha_api_key=entry.data.get(CONF_TWOCAPTCHA_API_KEY, "")
-                or entry.options.get(CONF_TWOCAPTCHA_API_KEY, ""),
+            browser_service_url=browser_service_url,
         )
         
         # Intervalul de actualizare (implicit 1 oră)
@@ -65,18 +72,60 @@ class IhidroDataUpdateCoordinator(DataUpdateCoordinator):
             Dict cu toate datele pentru toate POD-urile
         """
         try:
-            # Rulăm operațiile în executor pentru a nu bloca loop-ul async
-            return await self.hass.async_add_executor_job(self._fetch_data)
+            # Mobile API is synchronous — run in executor
+            data = await self.hass.async_add_executor_job(self._fetch_mobile_data)
+            
+            # Web Portal API is async — try to fetch web portal data if configured
+            if self.web_api.is_configured:
+                try:
+                    await self.web_api.scrape_all()
+                    
+                    # Enrich account data with web portal data
+                    for account_data in data.get("accounts", []):
+                        account_info = account_data.get("account_info", {})
+                        uan = account_info.get("UtilityAccountNumber", "")
+                        
+                        # Match web portal PODs to mobile API accounts
+                        for pod_info in self.web_api.get_cached_pods():
+                            pod_value = pod_info.get("pod", "")
+                            installation = pod_info.get("installation", "")
+                            
+                            # Store web portal data on the account
+                            account_data["web_pod_info"] = pod_info
+                            
+                            # Get latest meter reading from web portal
+                            latest = self.web_api.get_cached_latest_reading(
+                                installation, pod_value
+                            )
+                            if latest:
+                                account_data["meter_reading"] = latest
+                            
+                            # Get full index history
+                            history = self.web_api.get_cached_index_history(
+                                installation, pod_value
+                            )
+                            if history:
+                                account_data["meter_history"] = history
+                            
+                            # For now, match first POD to first account
+                            # TODO: proper matching by UAN when multiple PODs
+                            break
+                            
+                except Exception as web_err:
+                    _LOGGER.warning(
+                        "Web Portal data fetch failed (non-fatal, Mobile API data still available): %s",
+                        web_err
+                    )
+            
+            return data
+            
         except Exception as err:
             _LOGGER.error("Eroare la actualizarea datelor iHidro: %s", err)
             raise UpdateFailed(f"Eroare la actualizarea datelor: {err}") from err
 
-    def _fetch_data(self) -> Dict[str, Any]:
+    def _fetch_mobile_data(self) -> Dict[str, Any]:
         """
-        Fetch sincron al datelor de la API (rulează în executor).
-        
-        Folosește DOAR Mobile API pentru polling periodic.
-        Web Portal API se folosește doar on-demand la submit (din __init__.py service handler).
+        Fetch sincron al datelor de la Mobile API (rulează în executor).
         
         Returns:
             Dict structurat cu toate datele pentru toate POD-urile
@@ -157,5 +206,5 @@ class IhidroDataUpdateCoordinator(DataUpdateCoordinator):
             
             data["accounts"].append(account_data)
         
-        _LOGGER.debug("=== iHidro Coordinator: Actualizare finalizată cu succes ===")
+        _LOGGER.debug("=== iHidro Coordinator: Actualizare Mobile API finalizată ===")
         return data
