@@ -174,7 +174,17 @@ class IhidroWebPortalAPI:
     def get_cached_latest_reading(
         self, installation: str, pod: str
     ) -> Optional[Dict[str, Any]]:
-        """Get the latest meter reading from cache."""
+        """Get the latest meter reading from cache.
+
+        The browser service returns raw iHidro API fields:
+            PrevMRResult  — meter index value
+            prevMRDate    — date string like "12/21/2025 12:00:00 AM"
+            prevMRRsn     — reading reason code (e.g. "02")
+            prevMRCat     — reading category (e.g. "01")
+            SerialNumber  — meter serial number
+            Registers     — register code (e.g. "1.8.0")
+            Registersdesc — human-readable register name
+        """
         history = self.get_cached_index_history(installation, pod)
         if not history:
             return None
@@ -183,24 +193,46 @@ class IhidroWebPortalAPI:
         from datetime import datetime
 
         def parse_date(date_str: str) -> datetime:
+            """Parse iHidro date which is US format with optional time component.
+
+            Examples: "12/21/2025 12:00:00 AM", "01/15/2026"
+            """
+            if not date_str:
+                return datetime.min
             try:
-                return datetime.strptime(date_str, "%d/%m/%Y")
+                # Try full datetime format first
+                return datetime.strptime(date_str, "%m/%d/%Y %I:%M:%S %p")
+            except (ValueError, TypeError):
+                pass
+            try:
+                # Try date-only format
+                return datetime.strptime(date_str, "%m/%d/%Y")
             except (ValueError, TypeError):
                 return datetime.min
 
         sorted_history = sorted(
-            history, key=lambda x: parse_date(x.get("Date", "")), reverse=True
+            history,
+            key=lambda x: parse_date(x.get("prevMRDate", "")),
+            reverse=True,
         )
 
         if not sorted_history:
             return None
 
         latest = sorted_history[0]
+
+        # Normalize the date to DD/MM/YYYY for display
+        raw_date = latest.get("prevMRDate", "")
+        display_date = raw_date
+        parsed = parse_date(raw_date)
+        if parsed != datetime.min:
+            display_date = parsed.strftime("%d/%m/%Y")
+
         return {
-            "index": latest.get("Index"),
-            "date": latest.get("Date"),
-            "type": latest.get("ReadingType"),
-            "counter_series": latest.get("CounterSeries"),
+            "index": latest.get("PrevMRResult"),
+            "date": display_date,
+            "type": latest.get("Registersdesc", ""),
+            "counter_series": latest.get("SerialNumber", ""),
             "registers": latest.get("Registers", "1.8.0"),
         }
 

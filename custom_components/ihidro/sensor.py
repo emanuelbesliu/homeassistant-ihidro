@@ -333,14 +333,14 @@ class IhidroMeterReadingSensor(IhidroBaseSensor):
             attrs["pod"] = web_pod_info.get("pod")
             attrs["installation"] = web_pod_info.get("installation")
         
-        # Istoric index (primele 5 citiri)
+        # Istoric index (primele 5 citiri) — raw iHidro API field names
         if meter_history:
             attrs["history_count"] = len(meter_history)
             attrs["last_5_readings"] = [
                 {
-                    "index": h.get("Index"),
-                    "date": h.get("Date"),
-                    "type": h.get("ReadingType")
+                    "index": h.get("PrevMRResult"),
+                    "date": h.get("prevMRDate"),
+                    "type": h.get("Registersdesc"),
                 }
                 for h in meter_history[:5]
             ]
