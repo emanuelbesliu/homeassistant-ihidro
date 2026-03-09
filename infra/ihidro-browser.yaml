@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
         - name: ihidro-browser
-          image: ghcr.io/emanuelbesliu/ihidro-browser:v0.1.0
+          image: ghcr.io/emanuelbesliu/ihidro-browser:v0.1.1
           ports:
             - containerPort: 8193
               protocol: TCP

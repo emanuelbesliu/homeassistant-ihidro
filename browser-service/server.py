@@ -208,15 +208,23 @@ async def portal_login(tab: nd.Tab, username: str, password: str) -> dict:
             "csrf_token": None,
         }
 
-    if not state.get("csrfValue"):
+    if not state.get("hasCSRF"):
         return {
             "success": False,
-            "message": "CSRF token not found on login page",
+            "message": "CSRF token element not found on login page",
             "csrf_token": None,
         }
 
-    pre_login_csrf = state["csrfValue"]
-    logger.info("Pre-login CSRF: %s...", pre_login_csrf[:30])
+    # The pre-login CSRF value may be empty — ASP.NET populates it server-side
+    # but sometimes renders an empty value on the initial login page.
+    # The page's own jQuery $.ajaxSetup interceptor will handle sending whatever
+    # value is there. After login + redirect, the post-login page will have a
+    # proper CSRF token.
+    pre_login_csrf = state.get("csrfValue", "")
+    if pre_login_csrf:
+        logger.info("Pre-login CSRF: %s...", pre_login_csrf[:30])
+    else:
+        logger.info("Pre-login CSRF is empty (normal for login page, will get token after login)")
 
     # Step 3: Fill credentials and trigger login via JS
     # We use the page's own login flow which handles reCAPTCHA v3 natively.
