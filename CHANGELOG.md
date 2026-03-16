@@ -5,6 +5,13 @@ All notable changes to the iHidro Romania Home Assistant Integration will be doc
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1](https://github.com/emanuelbesliu/homeassistant-ihidro/compare/v2.0.0...v2.0.1) (2026-03-16)
+
+
+### Bug Fixes
+
+* align version references from 3.0.0 to 2.0.0 to match GitHub release ([fd0f68c](https://github.com/emanuelbesliu/homeassistant-ihidro/commit/fd0f68c6c83012a45c0a1e6d26331e11935ef087))
+
 ## [2.0.0](https://github.com/emanuelbesliu/homeassistant-ihidro/compare/v1.4.3...v2.0.0) (2026-03-16)
 
 ### ⚠ BREAKING CHANGES
