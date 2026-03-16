@@ -3,6 +3,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/emanuelbesliu/homeassistant-ihidro)](https://github.com/emanuelbesliu/homeassistant-ihidro/releases/latest)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.1+-blue.svg)](https://www.home-assistant.io/)
 [![License](https://img.shields.io/github/license/emanuelbesliu/homeassistant-ihidro)](LICENSE)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/emanuelbesliu)
 
 > **✨ Stable Release** - Mobile API integration with graceful Web Portal fallback
 
