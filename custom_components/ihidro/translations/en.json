@@ -3,40 +3,143 @@
     "step": {
       "user": {
         "title": "Configure iHidro Romania",
-        "description": "Enter your iHidro.ro (Hidroelectrica Romania) account credentials. The browser service URL points to the ihidro-browser microservice used for meter reading submission via the web portal.",
+        "description": "Enter your iHidro.ro (Hidroelectrica Romania) account credentials.",
         "data": {
           "username": "Username (email or client code)",
           "password": "Password",
-          "browser_service_url": "Browser Service URL (for meter submission)",
           "update_interval": "Update interval (seconds)"
+        }
+      },
+      "select_accounts": {
+        "title": "Select Accounts",
+        "description": "Select the PODs (delivery points) you want to monitor. All accounts are selected by default.",
+        "data": {
+          "selected_accounts": "Accounts to monitor"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate iHidro",
+        "description": "Your iHidro session has expired. Please enter your credentials again.",
+        "data": {
+          "username": "Username (email or client code)",
+          "password": "Password"
         }
       }
     },
     "error": {
       "invalid_auth": "Invalid credentials. Please check your username and password.",
       "cannot_connect": "Cannot connect to iHidro server. Please check your internet connection.",
+      "no_accounts": "No accounts (PODs) found for this user.",
       "unknown": "Unknown error occurred. Check Home Assistant logs."
     },
     "abort": {
-      "already_configured": "This iHidro account is already configured."
+      "already_configured": "This iHidro account is already configured.",
+      "reauth_successful": "Re-authentication was successful."
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "iHidro Options",
-        "description": "Configure options for the iHidro integration.",
+        "description": "Configure options for the iHidro integration. Optionally select an external energy sensor (e.g. Shelly EM, smart plug) for more accurate bill estimation and automatic meter reading submission.",
         "data": {
-          "browser_service_url": "Browser Service URL (for meter submission)",
-          "update_interval": "Update interval (seconds)"
+          "update_interval": "Update interval (seconds)",
+          "energy_sensor": "External energy sensor (optional)"
         }
+      }
+    },
+    "error": {
+      "energy_sensor_not_found": "The selected energy sensor was not found in Home Assistant.",
+      "energy_sensor_wrong_class": "The selected sensor is not an energy sensor (device_class must be 'energy').",
+      "energy_sensor_not_cumulative": "The selected sensor is not a cumulative energy meter (state_class must be 'total_increasing' or 'total'). Select a sensor that reports total consumed kWh, not instantaneous power.",
+      "energy_sensor_wrong_unit": "The selected sensor does not report energy in kWh or Wh. Sensors reporting W or kW (power) are not supported — select an energy (kWh) sensor instead.",
+      "energy_sensor_unavailable": "The selected energy sensor is currently unavailable. Make sure the device is online and try again.",
+      "energy_sensor_not_numeric": "The selected energy sensor has a non-numeric state. Make sure the sensor is working correctly."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "sold_factura_curenta": {
+        "name": "Current Bill Balance"
+      },
+      "consum_facturat": {
+        "name": "Billed Consumption"
+      },
+      "consum_lunar": {
+        "name": "Monthly Consumption"
+      },
+      "index_contor": {
+        "name": "Meter Index"
+      },
+      "pret_mediu_kwh": {
+        "name": "Average Price per kWh"
+      },
+      "compensare_anre": {
+        "name": "ANRE Compensation"
+      },
+      "index_contor_productie": {
+        "name": "Production Meter Index"
+      },
+      "consum_facturat_productie": {
+        "name": "Production Billed Consumption"
+      }
+    },
+    "binary_sensor": {
+      "sold_factura": {
+        "name": "Bill Balance"
+      },
+      "factura_restanta": {
+        "name": "Overdue Bill"
+      },
+      "citire_permisa": {
+        "name": "Reading Permitted"
+      }
+    },
+    "button": {
+      "trimite_index": {
+        "name": "Submit Meter Reading"
+      }
+    },
+    "number": {
+      "index_transmitere": {
+        "name": "Meter Reading Input"
+      },
+      "autotransmitere_delay": {
+        "name": "Auto-submit Delay (days)"
+      }
+    },
+    "switch": {
+      "autotransmitere": {
+        "name": "Auto-submit Meter Reading"
       }
     }
   },
   "services": {
     "submit_meter_reading": {
       "name": "Submit Meter Reading",
-      "description": "Submit electricity meter reading to Hidroelectrica for a specific POD."
+      "description": "Submit electricity meter reading to Hidroelectrica for a specific POD. Uses the SubmitSelfMeterRead API endpoint with full metadata.",
+      "fields": {
+        "utility_account_number": {
+          "name": "Utility Account Number (UAN)",
+          "description": "The utility account number"
+        },
+        "account_number": {
+          "name": "Account Number (AN)",
+          "description": "The account number"
+        },
+        "meter_number": {
+          "name": "Meter Number",
+          "description": "The electricity meter number"
+        },
+        "meter_reading": {
+          "name": "Meter Reading",
+          "description": "The meter reading value to submit (in kWh)"
+        },
+        "reading_date": {
+          "name": "Reading Date",
+          "description": "Date when the reading was taken (format MM/DD/YYYY). Defaults to current date if not specified."
+        }
+      }
     }
   }
 }

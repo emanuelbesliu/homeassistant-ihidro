@@ -1,0 +1,40 @@
+blueprint:
+  name: "iHidro: Notificare fereastră autocitire"
+  description: >-
+    Trimite o notificare când fereastra de autocitire Hidroelectrica
+    se deschide. Vă reamintește să trimiteți indexul contorului pentru
+    a evita facturile estimate. Folosește evenimentul ihidro_reading_window_opened.
+  domain: ihidro
+  author: iHidro Integration
+  input:
+    notify_service:
+      name: "Serviciu notificare"
+      description: "Serviciul de notificare HA (ex: notify.mobile_app_telefon)."
+      default: "notify.notify"
+      selector:
+        text: {}
+    repeat_daily:
+      name: "Repetă zilnic"
+      description: "Repetă notificarea în fiecare zi cât fereastra este deschisă."
+      default: false
+      selector:
+        boolean: {}
+
+mode: single
+max_exceeded: silent
+
+triggers:
+  - trigger: event
+    event_type: ihidro_reading_window_opened
+
+actions:
+  - variables:
+      pod: "{{ trigger.event.data.utility_account_number | default('') }}"
+      termen: "{{ trigger.event.data.window_end | default('necunoscut') }}"
+  - action: !input notify_service
+    data:
+      title: "Hidroelectrica: Fereastră autocitire deschisă"
+      message: >-
+        Fereastra de autocitire pentru POD {{ pod }} este acum deschisă.
+        Termen limită: {{ termen }}.
+        Deschideți Home Assistant și introduceți indexul contorului.

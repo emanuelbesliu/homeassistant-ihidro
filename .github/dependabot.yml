@@ -1,20 +1,5 @@
 version: 2
 updates:
-  # Monitor Python dependencies
-  - package-ecosystem: "pip"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 5
-    assignees:
-      - "emanuelbesliu"
-    labels:
-      - "dependencies"
-      - "python"
-    commit-message:
-      prefix: "ci(deps)"
-
   # Monitor GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -30,17 +15,4 @@ updates:
     commit-message:
       prefix: "ci(deps)"
 
-  # Monitor Docker base image
-  - package-ecosystem: "docker"
-    directory: "/browser-service"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 3
-    assignees:
-      - "emanuelbesliu"
-    labels:
-      - "dependencies"
-      - "docker"
-    commit-message:
-      prefix: "ci(deps)"
+

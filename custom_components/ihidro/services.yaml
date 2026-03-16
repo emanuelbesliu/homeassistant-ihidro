@@ -4,7 +4,9 @@ submit_meter_reading:
   name: Trimite Index Contor
   description: >-
     Trimite indexul contorului electric la Hidroelectrica România pentru un POD specific.
-    Acest serviciu permite automatizarea trimiterii lunare a indexului.
+    Folosește endpoint-ul SubmitSelfMeterRead cu metadata completă din GetPreviousMeterRead.
+    Alternativ, puteți folosi butonul nativ „Trimite Index" care citește
+    valoarea din entitatea Number (Index Transmitere) aferentă POD-ului.
   fields:
     utility_account_number:
       name: Număr Cont Utilitate (UAN)

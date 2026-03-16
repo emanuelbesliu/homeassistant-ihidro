@@ -3,14 +3,12 @@ name: Validate Dependencies
 on:
   pull_request:
     paths:
-      - 'requirements.txt'
       - 'custom_components/ihidro/manifest.json'
       - '.github/workflows/dependencies.yml'
   push:
     branches:
       - main
     paths:
-      - 'requirements.txt'
       - 'custom_components/ihidro/manifest.json'
 
 jobs:
@@ -24,52 +22,38 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.11'
+          python-version: '3.13'
 
-      - name: Install dependencies
+      - name: Validate manifest.json structure
+        run: |
+          python -c "
+          import json, sys
+          m = json.load(open('custom_components/ihidro/manifest.json'))
+          required = ['domain', 'name', 'version', 'requirements']
+          for key in required:
+              if key not in m:
+                  print(f'Missing required key: {key}')
+                  sys.exit(1)
+          print(f'Domain: {m[\"domain\"]}')
+          print(f'Version: {m[\"version\"]}')
+          print(f'Requirements: {m[\"requirements\"]}')
+          print('All required manifest keys present')
+          "
+
+      - name: Install and verify manifest requirements
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Verify manifest.json requirements match
-        run: |
-          # Extract requirements from manifest.json
-          MANIFEST_REQS=$(python -c "import json; print(' '.join(json.load(open('custom_components/ihidro/manifest.json'))['requirements']))")
-          
-          echo "Manifest requirements: $MANIFEST_REQS"
-          echo "requirements.txt:"
-          cat requirements.txt | grep -v '^#' | grep -v '^$'
-          
-          # Check if required packages are in requirements.txt
-          if ! grep -q "requests" requirements.txt; then
-            echo "❌ requests not found in requirements.txt"
-            exit 1
+          REQS=$(python -c "import json; print(' '.join(json.load(open('custom_components/ihidro/manifest.json'))['requirements']))")
+          if [ -n "$REQS" ]; then
+            echo "Installing manifest requirements: $REQS"
+            pip install $REQS
+            echo "All manifest requirements installed successfully"
+          else
+            echo "No external requirements declared in manifest.json"
           fi
-          
-          if ! grep -q "beautifulsoup4" requirements.txt; then
-            echo "❌ beautifulsoup4 not found in requirements.txt"
-            exit 1
-          fi
-          
-          echo "✓ Dependencies validation passed"
-
-      - name: Test import
-        run: |
-          python -c "import requests; print(f'requests version: {requests.__version__}')"
-          python -c "from bs4 import BeautifulSoup; import bs4; print(f'beautifulsoup4 version: {bs4.__version__}')"
-          echo "✓ All dependencies can be imported"
-
-      - name: Check for security vulnerabilities
-        run: |
-          pip install safety
-          safety check --file requirements.txt --json || echo "⚠️ Security check completed"
-        continue-on-error: true
 
       - name: Create validation summary
         run: |
           echo "# Dependencies Validation" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ All dependencies validated successfully!" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Installed Versions" >> $GITHUB_STEP_SUMMARY
-          pip list | grep -E "requests|urllib3" >> $GITHUB_STEP_SUMMARY || true
+          echo "All dependencies validated successfully!" >> $GITHUB_STEP_SUMMARY

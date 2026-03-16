@@ -1,104 +1,116 @@
-# 🏠 iHidro - Integrare Home Assistant pentru Hidroelectrica România
+# iHidro - Home Assistant Integration for Hidroelectrica Romania
 
-[![GitHub Release](https://img.shields.io/github/v/release/emanuelbesliu/homeassistant-ihidro)](https://github.com/emanuelbesliu/homeassistant-ihidro/releases/latest)
+[![Version](https://img.shields.io/badge/version-3.0.0-blue.svg)](https://github.com/emanuelbesliu/ihidro)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.1+-blue.svg)](https://www.home-assistant.io/)
-[![License](https://img.shields.io/github/license/emanuelbesliu/homeassistant-ihidro)](LICENSE)
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/emanuelbesliu)
+[![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-> **✨ Stable Release** - Mobile API integration with graceful Web Portal fallback
+Custom Home Assistant integration for monitoring and managing electricity accounts from **Hidroelectrica Romania** (ihidro.ro). Full-featured alternative to the cnecrea/hidroelectrica integration, with unique breakaway features.
 
-Integrare personalizată Home Assistant pentru monitorizarea și gestionarea conturilor de energie electrică de la **Hidroelectrica România** (ihidro.ro).
+## Features
 
-## ✨ Funcționalități
+### Monitoring (15-19 sensors per POD)
+- **Current balance** with payment status and due date tracking
+- **Bill history** with annual consumption and payment totals
+- **Meter reading** with active counter series detection
+- **Monthly consumption** from usage history
+- **Payment history** split by channel (bank, cash, online)
+- **POD info** with contract details and master data
+- **Daily consumption** and generation data
+- **Prosumer support** — production, ANRE compensation, net usage (auto-detected)
 
-### 📊 Monitorizare Completă
-- ✅ **Sold curent** - Vezi în timp real soldul facturilor
-- ✅ **Facturi** - Istoric complet al facturilor (curente și trecute)
-- ✅ **Plăți** - Istoric complet al plăților efectuate
-- ✅ **Consum** - Monitorizare consum electric lunar și istoric
-- ✅ **Index contor** - Citire automată index curent declarat
-- ✅ **Informații POD** - Detalii complete pentru fiecare punct de consum
+### Breakaway Features
+- **Real tariff sensor** — computes all-in cost per kWh from actual bill data (amount / consumption), not just the published rate
+- **Bill estimation sensor** — extrapolates current month's bill from consumption trend; supports optional external energy sensor (e.g. Shelly 3EM) for higher accuracy
+- **Consumption anomaly sensor** — detects unusual consumption patterns by comparing current usage against rolling historical average
+- **Days until due sensor** — countdown to payment deadline
 
-### 🤖 Trimitere Automată Index
-- ✅ **Serviciu dedicat** pentru trimiterea indexului contorului
-- ✅ **Automatizare lunară** - Trimite automat indexul în fiecare lună pe data de 22
-- ✅ **Integrare Shelly 3EM** - Calcul automat bazat pe consumul real
-- ✅ **Notificări** - Confirmare trimitere index sau alerte în caz de eroare
+### Auto-Submit Meter Reading
+- **Auto-submit switch** — when enabled, automatically reads the external energy sensor during the reading window and submits the meter index via API
+- **Configurable delay** — 0-10 day delay from window opening (default: 1 day)
+- **Offset calibration** — `offset = last_known_index - energy_sensor_value`, then `index = energy_sensor_current + offset`. Recalibrates each billing cycle.
+- Switch and delay entities are greyed out (unavailable) if no energy sensor is configured
 
-### 🏢 Suport Multi-POD
-- Gestionează **multiple puncte de consum** (POD-uri) în același timp
-- Senzori dedicați pentru fiecare POD
-- Grupare automată pe device-uri în Home Assistant
+### Additional Entities
+- **3 binary sensors** — payment status (paid/unpaid), overdue bill detection, reading window open/closed
+- **1 button** — manual meter reading submission with pre-validation (window check, value sanity)
+- **1 number input** — meter reading value entry for manual submission
+- **3 automation blueprints** — bill payment reminder, reading window notification, overdue bill alert
+- **Custom Lovelace card** — compact dashboard with balance, consumption, and status indicators (auto-registered)
 
-## 📦 Instalare
+### Multi-POD Support
+- Manages multiple consumption points (PODs) simultaneously
+- Dedicated entities per POD with automatic device grouping
+- Per-POD coordinator with 2-phase refresh (light every cycle, heavy every Nth cycle)
 
-### Metoda 1: Manual
+### Infrastructure
+- Async aiohttp API client (no requests/selenium/browser dependencies)
+- Token persistence across HA restarts
+- Reauth flow for expired credentials
+- Config entry migration from all old versions (v1.0.x through v1.4.x)
+- Anonymized diagnostics dump for troubleshooting
 
-1. Copiază directorul `ihidro` în `custom_components/`:
+## Entity Count
+
+| User Type | Sensors | Binary Sensors | Button | Number | Switch | Delay | Total |
+|-----------|---------|----------------|--------|--------|--------|-------|-------|
+| Standard  | 15      | 3              | 1      | 1      | 1      | 1     | **22** |
+| Prosumer  | 19      | 3              | 1      | 1      | 1      | 1     | **26** |
+
+## Installation
+
+### HACS (Recommended)
+
+1. Open HACS in Home Assistant
+2. Click the three dots menu (top right) and select **Custom repositories**
+3. Add `https://github.com/emanuelbesliu/homeassistant-ihidro` with category **Integration**
+4. Search for "iHidro" and install
+5. Restart Home Assistant
+
+### Manual
+
+1. Copy the `ihidro` directory to your `custom_components/` folder:
    ```bash
-   cd /config
-   mkdir -p custom_components
-   cp -r ihidro custom_components/
+   cp -r ihidro /config/custom_components/
    ```
+2. Restart Home Assistant
+3. Go to **Settings > Devices & Services > Add Integration** and search for "iHidro"
 
-2. Repornește Home Assistant
+## Configuration
 
-3. Mergi la **Settings → Devices & Services → Add Integration**
+### Step 1: Add Integration
 
-4. Caută "**iHidro**" și urmează pașii de configurare
+1. **Settings > Devices & Services > + Add Integration**
+2. Search for "**iHidro Romania**"
+3. Enter your ihidro.ro credentials:
+   - **Username**: Email or client code
+   - **Password**: Account password
+4. Select which PODs to monitor (if you have multiple)
 
-### Metoda 2: HACS (În Curând)
+### Step 2: Options (Optional)
 
-_Integrarea va fi disponibilă în HACS în viitorul apropiat._
+Go to **Settings > Devices & Services > iHidro > Configure** to set:
 
-## ⚙️ Configurare
+- **Update interval**: 300s (5 min) to 86400s (24 hours), default 3600s (1 hour)
+- **External energy sensor**: Select a cumulative energy sensor (e.g. `sensor.shelly_3em_total_energy`) for bill estimation and auto-submit. Must have:
+  - `device_class: energy`
+  - `state_class: total_increasing` or `total`
+  - Unit: kWh or Wh
+  - Valid numeric state
 
-### Pas 1: Adaugă Integrarea
+## Auto-Submit Setup
 
-1. În Home Assistant, mergi la **Settings → Devices & Services**
-2. Click pe **+ Add Integration**
-3. Caută "**iHidro Romania**"
-4. Introduceți credențialele ihidro.ro:
-   - **Username**: Email sau cod client
-   - **Password**: Parola contului
-   - **Interval actualizare** (opțional): Implicit 3600s (1 oră)
+1. Configure an external energy sensor in options (see above)
+2. Enable the **Autotransmitere** switch entity
+3. Optionally adjust the delay (0-10 days from window opening)
+4. The integration will automatically:
+   - Detect when the reading window opens
+   - Wait the configured delay
+   - Read the energy sensor value
+   - Apply offset calibration to compute the meter index
+   - Submit the reading via the Hidroelectrica API
 
-### Pas 2: Verifică Senzorii Creați
-
-După configurare, vei avea următorii senzori pentru fiecare POD:
-
-| Senzor | Descriere | Unitate |
-|--------|-----------|---------|
-| `sensor.ihidro_sold_curent_XXXXX` | Sold curent (factură) | RON |
-| `sensor.ihidro_ultima_factura_XXXXX` | Număr ultima factură | - |
-| `sensor.ihidro_index_contor_XXXXX` | Index curent contor ⚠️ | kWh |
-| `sensor.ihidro_consum_lunar_XXXXX` | Consum lunar ⚠️ | kWh |
-| `sensor.ihidro_ultima_plata_XXXXX` | Suma ultima plată | RON |
-| `sensor.ihidro_pod_info_XXXXX` | Informații POD | - |
-
-_*XXXXX = Numărul POD-ului (Utility Account Number)_
-
-**⚠️ Senzorii de Index și Consum:**
-- Acești senzori vor arăta "Unknown" pentru **contoarele clasice** (fără smart meter AMI)
-- Acest lucru este **comportament normal** - API-ul Hidroelectrica nu expune aceste date pentru contoarele non-smart
-- **Soluție:** Consultă [SOLUTIE_INDEX_MANUAL.md](SOLUTIE_INDEX_MANUAL.md) pentru ghid complet de configurare a indexului manual
-
-## 🚀 Utilizare
-
-### 📘 Ghid Complet de Testare
-
-**Pentru instrucțiuni detaliate de testare și utilizare, consultă [TESTING.md](TESTING.md)**
-
-Ghidul include:
-- ✅ Verificarea instalării și configurării
-- ✅ Identificarea detaliilor POD-ului
-- ✅ Testarea serviciului de trimitere index
-- ✅ Configurarea automatizărilor
-- ✅ Troubleshooting și debugging
-
-### Trimitere Manuală Index
-
-Poți trimite manual indexul folosind serviciul `ihidro.submit_meter_reading`:
+## Service: Manual Meter Submission
 
 ```yaml
 action: ihidro.submit_meter_reading
@@ -107,282 +119,147 @@ data:
   account_number: "87654321"
   meter_number: "CNT123456"
   meter_reading: 12345.5
-  reading_date: "02/22/2024"  # Opțional
+  reading_date: "02/22/2024"  # Optional, defaults to today
 ```
 
-**⚠️ IMPORTANT:** 
-- Verifică fereastra de transmitere înainte de trimitere (tipic 18-25 a fiecărei luni)
-- **Pentru contoare clasice:** Consultă [SOLUTIE_INDEX_MANUAL.md](SOLUTIE_INDEX_MANUAL.md) pentru configurare cu input_number helper
+Alternatively, use the built-in **Trimite Index** button entity which reads the value from the Number input entity.
 
-### Automatizare Lunară (Recomandată)
+## Automation Blueprints
 
-Creează o automatizare pentru trimiterea automată în fiecare lună:
+Three ready-to-use blueprints are included:
 
-```yaml
-alias: "Auto Trimite Index iHidro"
-description: "Trimite automat indexul pe data de 22 a fiecărei luni"
-mode: single
+| Blueprint | Trigger | Action |
+|-----------|---------|--------|
+| Bill Payment Reminder | Days before due date | Mobile notification |
+| Reading Window Notification | Window opens | Mobile notification |
+| Overdue Bill Alert | Bill becomes overdue | Mobile notification |
 
-triggers:
-  - platform: time
-    at: "09:00:00"
+Import from **Settings > Automations > Blueprints > Import Blueprint**.
 
-condition:
-  - condition: template
-    value_template: "{{ now().day == 22 }}"
+## Custom Lovelace Card
 
-actions:
-  - variables:
-      # Citește datele din senzorii iHidro
-      uan: "{{ state_attr('sensor.ihidro_sold_curent_12345678', 'utility_account_number') }}"
-      an: "{{ state_attr('sensor.ihidro_sold_curent_12345678', 'account_number') }}"
-      meter: "{{ state_attr('sensor.ihidro_index_contor_12345678', 'meter_number') }}"
-      
-      # Calculează indexul bazat pe ultima declarație + consum lunar
-      last_reading: "{{ states('sensor.ihidro_index_contor_12345678') | float }}"
-      monthly_consumption: "{{ states('sensor.shelly_3em_energy_monthly') | float }}"
-      new_reading: "{{ (last_reading + monthly_consumption) | round(2) }}"
+A custom card (`ihidro-card`) is auto-registered and available in your Lovelace dashboard. It shows:
+- Current balance with payment status (green/yellow/red)
+- Monthly consumption with trend
+- Meter reading with last reading date
+- Reading window status
 
-  - action: ihidro.submit_meter_reading
-    data:
-      utility_account_number: "{{ uan }}"
-      account_number: "{{ an }}"
-      meter_number: "{{ meter }}"
-      meter_reading: "{{ new_reading }}"
+If auto-registration fails, add manually:
+- **URL**: `/ihidro/ihidro-card.js`
+- **Type**: JavaScript Module
 
-  - action: notify.mobile_app_your_phone
-    data:
-      title: "✅ Index Hidroelectrica Trimis"
-      message: "Index {{ new_reading }} kWh trimis cu succes!"
-```
-
-**📁 Exemplu complet de automatizare disponibil în:**
-`automations/auto_submit_ihidro_meter_reading_example.yaml`
-
-### Integrare cu Shelly 3EM
-
-Dacă ai un Shelly 3EM pentru monitorizarea consumului:
-
-```yaml
-# Helper pentru index de bază (creează în Settings → Helpers)
-input_number.index_hidroelectrica_baza:
-  min: 0
-  max: 999999
-  step: 0.1
-  unit_of_measurement: kWh
-
-# Automatizare cu Shelly
-actions:
-  - variables:
-      base_reading: "{{ states('input_number.index_hidroelectrica_baza') | float }}"
-      shelly_consumption: "{{ states('sensor.shelly3em_channel_a_energy') | float }}"
-      new_reading: "{{ (base_reading + shelly_consumption) | round(2) }}"
-  
-  - action: ihidro.submit_meter_reading
-    data:
-      meter_reading: "{{ new_reading }}"
-      # ... rest parametri
-  
-  # Actualizează indexul de bază pentru luna viitoare
-  - action: input_number.set_value
-    target:
-      entity_id: input_number.index_hidroelectrica_baza
-    data:
-      value: "{{ new_reading }}"
-```
-
-## 📊 Exemple Dashboard
-
-### Card Sold Curent
-
-```yaml
-type: entities
-title: Hidroelectrica - Sold Curent
-entities:
-  - entity: sensor.ihidro_sold_curent_12345678
-    name: Sold de Plată
-  - type: attribute
-    entity: sensor.ihidro_sold_curent_12345678
-    attribute: due_date
-    name: Scadență
-  - type: attribute
-    entity: sensor.ihidro_sold_curent_12345678
-    attribute: status
-    name: Status
-```
-
-### Card Consum Lunar
-
-```yaml
-type: custom:mini-graph-card
-name: Consum Electric Lunar
-entities:
-  - entity: sensor.ihidro_consum_lunar_12345678
-hours_to_show: 720  # 30 zile
-line_width: 2
-points_per_hour: 0.04
-```
-
-### Card Index Contor
-
-```yaml
-type: glance
-title: Index Contor Electric
-entities:
-  - entity: sensor.ihidro_index_contor_12345678
-    name: Index Curent
-  - entity: sensor.ihidro_consum_lunar_12345678
-    name: Consum Luna
-  - entity: sensor.ihidro_sold_curent_12345678
-    name: Sold de Plată
-```
-
-## 🔧 Configurare Avansată
-
-### Interval de Actualizare
-
-Poți modifica intervalul de actualizare din **Settings → Devices & Services → iHidro → Configure**:
-
-- **Minim**: 300 secunde (5 minute)
-- **Implicit**: 3600 secunde (1 oră)
-- **Maxim**: 86400 secunde (24 ore)
-
-### Atribute Senzori
-
-Fiecare senzor expune atribute adiționale utile:
-
-```yaml
-# Exemplu: sensor.ihidro_sold_curent_12345678
-attributes:
-  utility_account_number: "12345678"
-  account_number: "87654321"
-  address: "Str. Exemplu Nr. 1, București"
-  due_date: "2024-02-28"
-  bill_number: "BILL123456"
-  status: "Neplătit"
-```
-
-Poți accesa aceste atribute în automatizări:
-
-```yaml
-{{ state_attr('sensor.ihidro_sold_curent_12345678', 'due_date') }}
-```
-
-## 🐛 Troubleshooting
-
-### ⚠️ Web Portal API Limitation (Important)
-
-**Current Status**: Web Portal API (ihidro.ro/portal) is **not accessible** due to Google reCAPTCHA protection.
-
-**Impact**:
-- ✅ **Mobile API works perfectly**: Bills, balance, payments, bill history - all functional
-- ⚠️ **Web Portal API blocked**: Cannot access meter reading data from Web Portal for classic (non-smart) meters
-- 🔄 **Smart meters still work**: If you have an AMI smart meter, index data comes from Mobile API
-
-**What this means for you**:
-- Integration **works normally** for viewing bills, balance, and payments
-- **Classic meter readings** (contoare clasice) will show "Unknown" for `sensor.ihidro_index_contor_*`
-- **Smart meter readings** (contoare AMI) still work through Mobile API
-- **Solution**: Use manual index input with helper - see [SOLUTIE_INDEX_MANUAL.md](SOLUTIE_INDEX_MANUAL.md)
-
-**Technical Details**:
-The Web Portal login requires solving a Google reCAPTCHA challenge, which cannot be automated programmatically (against Google's TOS). The integration attempts to access Web Portal but gracefully falls back to Mobile API only if authentication fails. This is logged as a warning but does not prevent the integration from working with Mobile API features.
-
-**Future**: We're monitoring for alternative authentication methods or API endpoints that don't require reCAPTCHA.
-
-### Eroare de Autentificare
-
-**Problema**: "Invalid credentials" la configurare
-
-**Soluții**:
-1. Verifică username-ul și parola pe [ihidro.ro](https://client.hidroelectrica.ro)
-2. Asigură-te că nu ai activat autentificare 2FA
-3. Verifică că nu ai caractere speciale în parolă care necesită escape
-
-### Senzorii nu se actualizează
-
-**Problema**: Senzorii rămân "unavailable" sau nu se actualizează
-
-**Soluții**:
-1. Verifică logurile: **Settings → System → Logs**
-2. Caută erori legate de "ihidro"
-3. Verifică intervalul de actualizare (minim 5 minute)
-4. Repornește Home Assistant
-
-### Eroare la trimiterea indexului
-
-**Problema**: Serviciul `submit_meter_reading` eșuează
-
-**Soluții**:
-1. Verifică că ești în fereastra de citire (între data X și Y a lunii)
-2. Verifică că indexul nou este mai mare decât ultimul declarat
-3. Verifică că ai acces la POD-ul respectiv
-4. Consultă logurile pentru detalii
-
-**⚠️ IMPORTANT**: Endpoint-ul pentru trimiterea indexului a fost estimat bazat pe structura API-ului Hidroelectrica. Dacă întâmpini probleme, consultă [TESTING.md](TESTING.md) pentru debugging sau deschide un issue pe GitHub.
-
-## 📝 Structura Fișierelor
+## File Structure
 
 ```
 custom_components/ihidro/
-├── __init__.py           # Entry point și servicii
-├── manifest.json         # Metadata integrare
-├── const.py              # Constante și endpoint-uri API
-├── api.py                # Client API iHidro
-├── coordinator.py        # Data Update Coordinator
-├── config_flow.py        # Configurare UI
-├── sensor.py             # Entități senzor
-├── services.yaml         # Definire servicii
-└── translations/         # Traduceri
-    ├── ro.json
-    └── en.json
+├── __init__.py              # Entry point, services, migration, card registration
+├── api.py                   # Async aiohttp API client (~880 lines)
+├── binary_sensor.py         # 3 binary sensors
+├── button.py                # Meter reading submission button
+├── config_flow.py           # 2-step + reauth + options flow
+├── const.py                 # Constants and API endpoints
+├── coordinator.py           # Per-UAN coordinator with 2-phase refresh
+├── diagnostics.py           # Anonymized diagnostic dump
+├── helpers.py               # Utility functions (~380 lines)
+├── manifest.json            # Integration metadata (v3.0.0)
+├── number.py                # Meter reading input entity
+├── sensor.py                # 19 sensor classes (~1750 lines)
+├── services.yaml            # Service definitions
+├── strings.json             # Translation keys
+├── switch.py                # Auto-submit switch + delay number
+├── hacs.json                # HACS distribution config
+├── translations/
+│   ├── en.json              # English translations
+│   └── ro.json              # Romanian translations
+├── blueprints/automation/
+│   ├── bill_payment_reminder.yaml
+│   ├── reading_window_notification.yaml
+│   └── overdue_bill_alert.yaml
+└── www/
+    └── ihidro-card.js       # Custom Lovelace card
 ```
 
-## 🔐 Securitate
+## Migration from v1.x
 
-- **Credențialele** sunt stocate encrypt în Home Assistant
-- **Comunicația** cu API-ul folosește HTTPS
-- **Session token** expiră automat și se reînnoiește
-- **Date sensibile** nu sunt logate în plaintext
+The integration automatically migrates config entries from any v1.x version:
 
-## 🤝 Contribuții
+| Old Version | Cleaned Keys | Added Keys |
+|-------------|-------------|------------|
+| v1.0.x - v1.2.x | — | token persistence, selected accounts |
+| v1.3.x | `twocaptcha_api_key` | token persistence, selected accounts |
+| v1.4.x | `browser_service_url` | token persistence, selected accounts |
 
-Contribuțiile sunt binevenite! Pentru bug-uri sau feature requests, deschide un issue pe GitHub.
+Obsolete keys are also cleaned from options entries. No user action required.
 
-### Development
+## Security
 
-Pentru a dezvolta integrarea:
+- Credentials stored encrypted by Home Assistant
+- HTTPS communication with API
+- Session tokens auto-expire and auto-renew
+- Sensitive data never logged in plaintext
+- Diagnostics output is anonymized (last 4 chars only)
 
-1. Fork repository-ul
-2. Creează un branch pentru feature-ul tău
-3. Testează în Home Assistant
-4. Creează un Pull Request
+## Troubleshooting
 
-## 📄 Licență
+### Authentication errors
+1. Verify credentials at [ihidro.ro](https://client.hidroelectrica.ro)
+2. Check HA logs: **Settings > System > Logs**, filter for "ihidro"
+3. If persistent, remove and re-add the integration (triggers reauth)
 
-MIT License - Vezi [LICENSE](LICENSE) pentru detalii.
+### Sensors unavailable
+1. Check logs for API errors
+2. Verify internet connectivity
+3. Reduce update interval if rate-limited
+4. Check Hidroelectrica service status
 
-## 🙏 Mulțumiri
+### Meter submission fails
+1. Verify the reading window is open (check binary sensor)
+2. Ensure the new index is higher than the last declared index
+3. Check logs for API response details
 
-- **@cnecrea** pentru integrarea Hidroelectrica originală care a servit ca referință
-- **Home Assistant Community** pentru suport și documentație
-- **Hidroelectrica România** pentru API-ul public
+### Diagnostics
+Download diagnostics from **Settings > Devices & Services > iHidro > (device) > Download Diagnostics**. All sensitive data is automatically anonymized.
 
-## 📞 Support
+## Comparison with cnecrea/hidroelectrica
 
-- **GitHub Issues**: [Raportează probleme](https://github.com/emanuelbesliu/ihidro/issues)
-- **Home Assistant Community**: [Forum discuții](https://community.home-assistant.io/)
+| Feature | iHidro v3 | cnecrea v2.5 |
+|---------|-----------|--------------|
+| Sensors per POD | 15-19 | ~8 |
+| Binary sensors | 3 | 0 |
+| Button/Number entities | Yes | No |
+| Auto-submit switch | Yes | No |
+| External energy sensor | Yes | No |
+| Real tariff computation | Yes | No |
+| Bill estimation | Yes | No |
+| Anomaly detection | Yes | No |
+| Prosumer support | Auto-detected | Manual |
+| Automation blueprints | 3 included | 0 |
+| Custom Lovelace card | Yes | No |
+| Token persistence | Yes | No |
+| 2-phase refresh | Yes | No |
+| Diagnostics | Anonymized | No |
+| Migration from v1.x | Automatic | N/A |
 
----
+## Contributing
 
-**🔌 Dezvoltat cu ❤️ pentru comunitatea Home Assistant România**
+Contributions welcome. For bugs or feature requests, open an issue on GitHub.
 
-## ☕ Support the Developer
+## License
 
-If you find this project useful, consider buying me a coffee!
+MIT License - See [LICENSE](LICENSE) for details.
+
+## Credits
+
+- **@cnecrea** for the original Hidroelectrica integration that served as initial reference
+- **Home Assistant Community** for documentation and support
+
+## Support
+
+- **GitHub Issues**: [Report problems](https://github.com/emanuelbesliu/homeassistant-ihidro/issues)
+- **Home Assistant Community**: [Forum](https://community.home-assistant.io/)
 
 [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/emanuelbesliu)
 
 ---
 
-*Această integrare nu este afiliată oficial cu Hidroelectrica România.*
+*This integration is not officially affiliated with Hidroelectrica Romania.*

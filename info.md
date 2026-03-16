@@ -1,52 +1,56 @@
-# iHidro - Integrare Home Assistant
+# iHidro - Integrare Home Assistant pentru Hidroelectrica Romania
 
-Integrare completă pentru monitorizarea și gestionarea conturilor de energie electrică de la **Hidroelectrica România** (ihidro.ro).
+Integrare completa pentru monitorizarea si gestionarea conturilor de energie electrica de la **Hidroelectrica Romania** (ihidro.ro).
 
-## Funcționalități
+## Functionalitati principale
 
-- ✅ Monitorizare sold curent, facturi, plăți și consum
-- ✅ Suport pentru multiple POD-uri (puncte de consum)
-- ✅ Trimitere automată index contor lunar
-- ✅ Integrare cu Shelly 3EM și alte monitoare de energie
-- ✅ 6 senzori dedicați per POD
-- ✅ Traduceri complete română/engleză
+- **22-26 entitati per POD** (senzori, butoane, switch-uri, number entities)
+- Monitorizare sold curent, facturi, plati si consum
+- Suport pentru **multiple POD-uri** (puncte de consum)
+- Suport complet **prosumatori** (productie, compensare ANRE)
+- **Trimitere automata index contor** cu senzor extern de energie (optional)
+- **Trimitere manuala index** direct din HA (buton + number entity)
+- Pre-validare index inainte de trimitere (GetMeterValue)
+- Senzori de estimare factura, tarif real, anomalie consum
+- Binary sensors: fereastra de citire, factura restanta, scadenta
+- **3 blueprint-uri** de automatizare incluse
+- **Lovelace card personalizat** inclus
+- Traduceri complete romana/engleza
+- Diagnostice anonimizate
+- Migrare automata de la versiunile anterioare (v1.x)
 
 ## Instalare
 
 ### HACS (Recomandat)
 
-1. Deschide HACS în Home Assistant
+1. Deschide HACS in Home Assistant
 2. Click pe "Integrations"
-3. Click pe meniul cu 3 puncte → "Custom repositories"
-4. Adaugă: `https://github.com/emanuelbesliu/homeassistant-ihidro`
+3. Click pe meniul cu 3 puncte -> "Custom repositories"
+4. Adauga: `https://github.com/emanuelbesliu/homeassistant-ihidro`
 5. Categorie: "Integration"
-6. Caută "iHidro Romania" și instalează
+6. Cauta "iHidro Romania" si instaleaza
 
 ### Manual
 
-```bash
-cd /config/custom_components
-git clone https://github.com/emanuelbesliu/homeassistant-ihidro.git ihidro
-mv ihidro/custom_components/ihidro/* ihidro/
-rm -rf ihidro/custom_components
-```
+Copiaza directorul `custom_components/ihidro` in directorul `custom_components` al Home Assistant.
 
 ## Configurare
 
-1. Repornește Home Assistant
-2. **Settings → Devices & Services → Add Integration**
-3. Caută "iHidro Romania"
-4. Introduceți credențialele ihidro.ro
+1. Reporneste Home Assistant
+2. **Settings -> Devices & Services -> Add Integration**
+3. Cauta "iHidro Romania"
+4. Introduceti credentialele ihidro.ro
+5. (Optional) Configurati senzor de energie extern in optiunile integrarii
 
-## Documentație Completă
+## Documentatie Completa
 
-Vezi [README complet](README.md) pentru:
-- Instrucțiuni detaliate de instalare
-- Exemple de automatizări
+Vezi [README complet](https://github.com/emanuelbesliu/homeassistant-ihidro/blob/main/README.md) pentru:
+- Lista completa de entitati
+- Ghid autotransmitere index
+- Exemple de automatizari
 - Configurare dashboard
 - Troubleshooting
 
 ## Support
 
 - [GitHub Issues](https://github.com/emanuelbesliu/homeassistant-ihidro/issues)
-- [Documentație completă](README.md)

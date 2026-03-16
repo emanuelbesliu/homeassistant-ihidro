@@ -1,0 +1,50 @@
+blueprint:
+  name: "iHidro: Alertă factură restantă"
+  description: >-
+    Trimite o alertă urgentă când o factură Hidroelectrica devine restantă
+    (depășește data scadenței). Folosește evenimentul ihidro_overdue_bill
+    emis de integrare. Include suma și data scadenței în notificare.
+  domain: ihidro
+  author: iHidro Integration
+  input:
+    notify_service:
+      name: "Serviciu notificare"
+      description: "Serviciul de notificare HA (ex: notify.mobile_app_telefon)."
+      default: "notify.notify"
+      selector:
+        text: {}
+    critical:
+      name: "Notificare critică"
+      description: >-
+        Trimite ca notificare critică (sună chiar dacă telefonul e pe silențios).
+        Funcționează doar cu mobile_app.
+      default: false
+      selector:
+        boolean: {}
+
+mode: single
+max_exceeded: silent
+
+triggers:
+  - trigger: event
+    event_type: ihidro_overdue_bill
+
+actions:
+  - variables:
+      pod: "{{ trigger.event.data.utility_account_number | default('') }}"
+      suma: "{{ trigger.event.data.amount | default('necunoscută') }}"
+      scadenta: "{{ trigger.event.data.due_date | default('necunoscută') }}"
+      is_critical: !input critical
+  - action: !input notify_service
+    data:
+      title: "URGENT: Factură Hidroelectrica restantă!"
+      message: >-
+        Factura pentru POD {{ pod }} în valoare de {{ suma }} lei
+        a depășit scadența ({{ scadenta }}).
+        Efectuați plata cât mai curând pentru a evita penalitățile.
+      data: >
+        {% if is_critical %}
+          {"push": {"sound": {"name": "default", "critical": 1, "volume": 1.0}}}
+        {% else %}
+          {}
+        {% endif %}

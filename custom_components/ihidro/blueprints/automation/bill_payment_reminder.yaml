@@ -1,0 +1,63 @@
+blueprint:
+  name: "iHidro: Reminder plată factură"
+  description: >-
+    Trimite o notificare când factura Hidroelectrica se apropie de scadență.
+    Folosește senzorul "Zile Până la Scadență" din integrarea iHidro.
+    Configurabil: alegeți cu câte zile înainte doriți notificarea
+    și serviciul de notificare (mobile_app, telegram, etc).
+  domain: ihidro
+  author: iHidro Integration
+  input:
+    days_sensor:
+      name: "Senzor Zile Până la Scadență"
+      description: "Senzorul iHidro care arată câte zile mai sunt până la scadență."
+      selector:
+        entity:
+          domain: sensor
+          integration: ihidro
+    days_before:
+      name: "Zile înainte de scadență"
+      description: "Cu câte zile înainte de scadență doriți notificarea."
+      default: 3
+      selector:
+        number:
+          min: 1
+          max: 14
+          step: 1
+          unit_of_measurement: "zile"
+    notify_service:
+      name: "Serviciu notificare"
+      description: "Serviciul de notificare HA (ex: notify.mobile_app_telefon)."
+      default: "notify.notify"
+      selector:
+        text: {}
+
+mode: single
+max_exceeded: silent
+
+triggers:
+  - trigger: numeric_state
+    entity_id: !input days_sensor
+    below: !input days_before
+
+conditions:
+  - condition: numeric_state
+    entity_id: !input days_sensor
+    above: -1
+
+actions:
+  - variables:
+      zile: "{{ states(trigger.entity_id) | int(0) }}"
+      suma: "{{ state_attr(trigger.entity_id, 'amount') | default('necunoscută') }}"
+      scadenta: "{{ state_attr(trigger.entity_id, 'due_date') | default('necunoscută') }}"
+      pod: "{{ state_attr(trigger.entity_id, 'utility_account_number') | default('') }}"
+  - action: !input notify_service
+    data:
+      title: "Factură Hidroelectrica - {{ zile }} zile rămase"
+      message: >-
+        Factura pentru POD {{ pod }} în valoare de {{ suma }} lei
+        este scadentă pe {{ scadenta }}.
+        {% if zile | int(0) == 0 %}Factura este scadentă AZI!
+        {% elif zile | int(0) == 1 %}Mai este o singură zi până la scadență.
+        {% else %}Mai sunt {{ zile }} zile până la scadență.
+        {% endif %}

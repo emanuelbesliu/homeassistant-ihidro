@@ -2,41 +2,144 @@
   "config": {
     "step": {
       "user": {
-        "title": "Configurare iHidro Romania",
-        "description": "Introduceti datele de autentificare pentru contul dumneavoastra iHidro.ro (Hidroelectrica Romania). URL-ul serviciului browser indica microserviciul ihidro-browser folosit pentru trimiterea indexului prin portalul web.",
+        "title": "Configurare iHidro România",
+        "description": "Introduceți datele de autentificare pentru contul dumneavoastră iHidro.ro (Hidroelectrica România).",
         "data": {
           "username": "Nume utilizator (email sau cod client)",
-          "password": "Parola",
-          "browser_service_url": "URL Serviciu Browser (pentru trimitere index)",
+          "password": "Parolă",
           "update_interval": "Interval actualizare (secunde)"
+        }
+      },
+      "select_accounts": {
+        "title": "Selectare Conturi",
+        "description": "Selectați POD-urile (punctele de consum) pe care doriți să le monitorizați. Implicit sunt selectate toate conturile.",
+        "data": {
+          "selected_accounts": "Conturi de monitorizat"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-autentificare iHidro",
+        "description": "Sesiunea iHidro a expirat. Vă rugăm să introduceți din nou datele de autentificare.",
+        "data": {
+          "username": "Nume utilizator (email sau cod client)",
+          "password": "Parolă"
         }
       }
     },
     "error": {
-      "invalid_auth": "Date de autentificare invalide. Verificati username-ul si parola.",
-      "cannot_connect": "Nu se poate conecta la serverul iHidro. Verificati conexiunea la internet.",
-      "unknown": "Eroare necunoscuta. Verificati logurile Home Assistant."
+      "invalid_auth": "Date de autentificare invalide. Verificați username-ul și parola.",
+      "cannot_connect": "Nu se poate conecta la serverul iHidro. Verificați conexiunea la internet.",
+      "no_accounts": "Nu s-au găsit conturi (POD-uri) pentru acest utilizator.",
+      "unknown": "Eroare necunoscută. Verificați logurile Home Assistant."
     },
     "abort": {
-      "already_configured": "Acest cont iHidro este deja configurat."
+      "already_configured": "Acest cont iHidro este deja configurat.",
+      "reauth_successful": "Re-autentificarea a fost realizată cu succes."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Optiuni iHidro",
-        "description": "Configurati optiunile pentru integrarea iHidro.",
+        "title": "Opțiuni iHidro",
+        "description": "Configurați opțiunile pentru integrarea iHidro. Opțional, selectați un senzor de energie extern (ex. Shelly EM, priză inteligentă) pentru estimări mai precise ale facturii și transmiterea automată a indexului.",
         "data": {
-          "browser_service_url": "URL Serviciu Browser (pentru trimitere index)",
-          "update_interval": "Interval actualizare (secunde)"
+          "update_interval": "Interval actualizare (secunde)",
+          "energy_sensor": "Senzor energie extern (opțional)"
         }
+      }
+    },
+    "error": {
+      "energy_sensor_not_found": "Senzorul de energie selectat nu a fost găsit în Home Assistant.",
+      "energy_sensor_wrong_class": "Senzorul selectat nu este un senzor de energie (device_class trebuie să fie 'energy').",
+      "energy_sensor_not_cumulative": "Senzorul selectat nu este un contor cumulativ de energie (state_class trebuie să fie 'total_increasing' sau 'total'). Selectați un senzor care raportează totalul kWh consumați, nu puterea instantanee.",
+      "energy_sensor_wrong_unit": "Senzorul selectat nu raportează energie în kWh sau Wh. Senzorii care raportează W sau kW (putere) nu sunt suportați — selectați un senzor de energie (kWh).",
+      "energy_sensor_unavailable": "Senzorul de energie selectat este momentan indisponibil. Asigurați-vă că dispozitivul este online și încercați din nou.",
+      "energy_sensor_not_numeric": "Senzorul de energie selectat are o stare non-numerică. Asigurați-vă că senzorul funcționează corect."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "sold_factura_curenta": {
+        "name": "Sold Factură Curentă"
+      },
+      "consum_facturat": {
+        "name": "Consum Facturat"
+      },
+      "consum_lunar": {
+        "name": "Consum Lunar"
+      },
+      "index_contor": {
+        "name": "Index Contor"
+      },
+      "pret_mediu_kwh": {
+        "name": "Preț Mediu kWh"
+      },
+      "compensare_anre": {
+        "name": "Compensare ANRE"
+      },
+      "index_contor_productie": {
+        "name": "Index Contor Producție"
+      },
+      "consum_facturat_productie": {
+        "name": "Consum Facturat Producție"
+      }
+    },
+    "binary_sensor": {
+      "sold_factura": {
+        "name": "Sold Factură"
+      },
+      "factura_restanta": {
+        "name": "Factură Restantă"
+      },
+      "citire_permisa": {
+        "name": "Citire Permisă"
+      }
+    },
+    "button": {
+      "trimite_index": {
+        "name": "Trimite Index Contor"
+      }
+    },
+    "number": {
+      "index_transmitere": {
+        "name": "Index Transmitere"
+      },
+      "autotransmitere_delay": {
+        "name": "Întârziere Autotransmitere (zile)"
+      }
+    },
+    "switch": {
+      "autotransmitere": {
+        "name": "Autotransmitere Index Contor"
       }
     }
   },
   "services": {
     "submit_meter_reading": {
       "name": "Trimite Index Contor",
-      "description": "Trimite indexul contorului electric la Hidroelectrica pentru un POD specific."
+      "description": "Trimite indexul contorului electric la Hidroelectrica pentru un POD specific. Folosește endpoint-ul SubmitSelfMeterRead cu metadata completă.",
+      "fields": {
+        "utility_account_number": {
+          "name": "Număr Cont Utilitate (UAN)",
+          "description": "Numărul contului utilitate (Utility Account Number)"
+        },
+        "account_number": {
+          "name": "Număr Cont (AN)",
+          "description": "Numărul contului (Account Number)"
+        },
+        "meter_number": {
+          "name": "Număr Contor",
+          "description": "Numărul contorului electric"
+        },
+        "meter_reading": {
+          "name": "Index Contor",
+          "description": "Valoarea indexului de transmis (în kWh)"
+        },
+        "reading_date": {
+          "name": "Data Citirii",
+          "description": "Data la care a fost citit indexul (format MM/DD/YYYY). Dacă nu este specificată, se folosește data curentă."
+        }
+      }
     }
   }
 }
