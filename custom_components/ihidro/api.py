@@ -4,11 +4,14 @@ Client API async pentru iHidro.ro (Hidroelectrica România).
 Implementează toate endpoint-urile API disponibile pentru:
 - Autentificare (GetId, ValidateUserLogin, GetUserSetting)
 - Facturi (GetBill, GetBillingHistoryList)
-- Plăți (GetPaymentHistory)
 - Consum (GetUsageGeneration, GetMultiMeter)
 - Contor / Autocitire (GetWindowDatesENC, GetWindowDates, GetMeterValue,
   SubmitSelfMeterRead, GetPods, GetPreviousMeterRead, GetMeterCounterSeries,
   GetMeterReadHistory, GetMasterDataStatus)
+
+Notă: GetPaymentHistory NU există ca endpoint separat.
+Datele de plată sunt incluse în răspunsul GetBillingHistoryList
+(câmpul objBillingPaymentHistoryEntity).
 
 Folosește aiohttp (via HA async_get_clientsession) în loc de requests sincron.
 """
@@ -28,7 +31,6 @@ from .const import (
     API_PATH_GET_USER_SETTING,
     API_PATH_GET_BILL,
     API_PATH_GET_BILL_HISTORY,
-    API_PATH_GET_PAYMENT_HISTORY,
     API_PATH_GET_USAGE_GENERATION,
     API_PATH_GET_MULTI_METER,
     API_PATH_GET_WINDOW_DATES,
@@ -124,9 +126,17 @@ class IhidroAPI:
     # =========================================================================
 
     async def login_if_needed(self) -> None:
-        """Face login doar dacă session_token este None."""
+        """Face login doar dacă session_token este None.
+
+        Dacă avem token dar nu avem conturi încărcate, le obținem separat
+        (se întâmplă după restart HA cu token-uri injectate).
+        """
         if self._session_token:
-            _LOGGER.debug("Avem deja session_token valid, nu mai facem login.")
+            if not self._utility_accounts:
+                _LOGGER.debug(
+                    "Avem session_token dar nu avem conturi — obținem GetUserSetting."
+                )
+                await self._get_utility_accounts()
             return
         await self.login()
 
@@ -322,33 +332,6 @@ class IhidroAPI:
             payload=payload,
             headers=self._auth_header,
             descriere="GetBillingHistoryList - Istoric facturi",
-        )
-
-    # =========================================================================
-    # Endpoint-uri pentru plăți
-    # =========================================================================
-
-    async def get_payment_history(
-        self,
-        utility_account_number: str,
-        account_number: str,
-        from_date: str,
-        to_date: str,
-    ) -> Dict[str, Any]:
-        """Obține istoricul plăților pentru un POD."""
-        payload = {
-            "LanguageCode": "RO",
-            "UserID": self._user_id,
-            "UtilityAccountNumber": utility_account_number,
-            "AccountNumber": account_number,
-            "FromDate": from_date,
-            "ToDate": to_date,
-        }
-        return await self._post_request(
-            API_PATH_GET_PAYMENT_HISTORY,
-            payload=payload,
-            headers=self._auth_header,
-            descriere="GetPaymentHistory - Istoric plăți",
         )
 
     # =========================================================================
@@ -567,31 +550,69 @@ class IhidroAPI:
         )
 
     async def get_previous_meter_read(
-        self, utility_account_number: str, account_number: str
-    ) -> Dict[str, Any]:
-        """Obține citirea anterioară a contorului cu metadate distribuitor/contract."""
+        self,
+        utility_account_number: str,
+        installation_number: str = "",
+        pod_value: str = "",
+        customer_number: str = "",
+    ) -> Optional[Dict[str, Any]]:
+        """Obține citirea anterioară a contorului cu metadate distribuitor/contract.
+
+        Payload corect (din APK y0.java):
+        {UtilityAccountNumber, InstallationNumber, podValue, LanguageCode,
+         UserID, BasicValue, CustomerNumber, Distributor}
+
+        NECESITĂ: InstallationNumber și podValue din GetPods!
+        CustomerNumber = accountID (BPNumber) din GetPods.
+
+        ATENȚIE: Returnează HTTP 400 când fereastra de autocitire este ÎNCHISĂ.
+        Aceasta este comportament normal — funcția returnează None în acest caz.
+        """
         payload = {
-            "MeterType": "E",
-            "UserID": self._user_id,
             "UtilityAccountNumber": utility_account_number,
-            "AccountNumber": account_number,
+            "InstallationNumber": installation_number,
+            "podValue": pod_value,
+            "LanguageCode": "RO",
+            "UserID": self._user_id,
+            "BasicValue": "",
+            "CustomerNumber": customer_number,
+            "Distributor": "",
         }
-        return await self._post_request(
-            API_PATH_GET_PREVIOUS_METER_READ,
-            payload=payload,
-            headers=self._auth_header,
-            descriere="GetPreviousMeterRead - Citire anterioară contor",
-        )
+        try:
+            return await self._post_request(
+                API_PATH_GET_PREVIOUS_METER_READ,
+                payload=payload,
+                headers=self._auth_header,
+                descriere="GetPreviousMeterRead - Citire anterioară contor",
+            )
+        except IhidroApiError as err:
+            # HTTP 400 = fereastra de autocitire închisă (comportament normal)
+            if "400" in str(err):
+                _LOGGER.debug(
+                    "GetPreviousMeterRead: Fereastra de autocitire este închisă "
+                    "(HTTP 400 — comportament normal)."
+                )
+                return None
+            raise
 
     async def get_meter_counter_series(
-        self, utility_account_number: str, account_number: str
+        self,
+        utility_account_number: str,
+        installation_number: str,
+        pod_value: str,
     ) -> Dict[str, Any]:
-        """Obține seriile de contorizare cu detecția seriei active."""
+        """Obține seriile de contorizare cu detecția seriei active.
+
+        Payload corect (din APK j0.java):
+        {utilityAccountNumber, InstallationNumber, podValue, LanguageCode}
+
+        NECESITĂ: InstallationNumber și podValue din GetPods!
+        """
         payload = {
-            "MeterType": "E",
-            "UserID": self._user_id,
-            "UtilityAccountNumber": utility_account_number,
-            "AccountNumber": account_number,
+            "utilityAccountNumber": utility_account_number,
+            "InstallationNumber": installation_number,
+            "podValue": pod_value,
+            "LanguageCode": "RO",
         }
         return await self._post_request(
             API_PATH_GET_METER_COUNTER_SERIES,
@@ -601,18 +622,30 @@ class IhidroAPI:
         )
 
     async def get_meter_read_history(
-        self, utility_account_number: str, account_number: str
+        self,
+        utility_account_number: str,
+        installation_number: str,
+        pod_value: str,
+        serial_numbers: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Obține istoricul complet al citirilor contorului.
+
+        Payload corect (din APK h0.java):
+        {utilityAccountNumber, podValue, LanguageCode, InstallationNumber,
+         SerialNumber: JSONArray}
+
+        NECESITĂ: InstallationNumber și podValue din GetPods!
+        SerialNumber opțional (din GetMeterCounterSeries).
 
         Rezultatul include registre (1.8.0, 1.8.0_P etc.) ce permit
         detectarea automată a statusului de prosumator.
         """
         payload = {
-            "MeterType": "E",
-            "UserID": self._user_id,
-            "UtilityAccountNumber": utility_account_number,
-            "AccountNumber": account_number,
+            "utilityAccountNumber": utility_account_number,
+            "podValue": pod_value,
+            "LanguageCode": "RO",
+            "InstallationNumber": installation_number,
+            "SerialNumber": serial_numbers or [],
         }
         return await self._post_request(
             API_PATH_GET_METER_READ_HISTORY,
@@ -621,16 +654,12 @@ class IhidroAPI:
             descriere="GetMeterReadHistory - Istoric citiri contor",
         )
 
-    async def get_master_data_status(
-        self, utility_account_number: str, account_number: str
-    ) -> Dict[str, Any]:
-        """Obține statusul datelor master pentru un POD."""
-        payload = {
-            "MeterType": "E",
-            "UserID": self._user_id,
-            "UtilityAccountNumber": utility_account_number,
-            "AccountNumber": account_number,
-        }
+    async def get_master_data_status(self) -> Dict[str, Any]:
+        """Obține statusul datelor master (global, nu per POD).
+
+        Payload corect (din APK decompilare): doar UserID.
+        """
+        payload = {"UserID": self._user_id}
         return await self._post_request(
             API_PATH_GET_MASTER_DATA_STATUS,
             payload=payload,

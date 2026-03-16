@@ -20,7 +20,8 @@ API_PATH_GET_USER_SETTING = "/API/UserLogin/GetUserSetting"
 # =========================================================================
 API_PATH_GET_BILL = "/Service/Billing/GetBill"
 API_PATH_GET_BILL_HISTORY = "/Service/Billing/GetBillingHistoryList"
-API_PATH_GET_PAYMENT_HISTORY = "/Service/Payment/GetPaymentHistory"
+# Notă: GetPaymentHistory NU există ca endpoint separat.
+# Datele de plată sunt incluse în răspunsul GetBillingHistoryList.
 
 # =========================================================================
 # Endpoint-uri API — consum
@@ -40,9 +41,13 @@ API_PATH_SUBMIT_SELF_METER_READ = "/Service/SelfMeterReading/SubmitSelfMeterRead
 # =========================================================================
 API_PATH_GET_PODS = "/Service/SelfMeterReading/GetPods"
 API_PATH_GET_PREVIOUS_METER_READ = "/Service/SelfMeterReading/GetPreviousMeterRead"
-API_PATH_GET_METER_COUNTER_SERIES = "/Service/SelfMeterReading/GetMeterCounterSeries"
-API_PATH_GET_METER_READ_HISTORY = "/Service/SelfMeterReading/GetMeterReadHistory"
-API_PATH_GET_MASTER_DATA_STATUS = "/Service/SelfMeterReading/GetMasterDataStatus"
+API_PATH_GET_MASTER_DATA_STATUS = "/API/UserLogin/GetMasterDataStatus"
+
+# =========================================================================
+# Endpoint-uri API — Istoric citiri și contoare (IndexHistory)
+# =========================================================================
+API_PATH_GET_METER_COUNTER_SERIES = "/Service/IndexHistory/GetMeterCounterSeries"
+API_PATH_GET_METER_READ_HISTORY = "/Service/IndexHistory/GetMeterReadHistory"
 
 # =========================================================================
 # Header-e HTTP

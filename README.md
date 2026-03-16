@@ -5,7 +5,7 @@
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-Custom Home Assistant integration for monitoring and managing electricity accounts from **Hidroelectrica Romania** (ihidro.ro). Full-featured alternative to the cnecrea/hidroelectrica integration, with unique breakaway features.
+Custom Home Assistant integration for monitoring and managing electricity accounts from **Hidroelectrica Romania** (ihidro.ro), with advanced features like real tariff computation, bill estimation, consumption anomaly detection, and auto-submit meter readings.
 
 ## Features
 
@@ -220,26 +220,6 @@ Obsolete keys are also cleaned from options entries. No user action required.
 ### Diagnostics
 Download diagnostics from **Settings > Devices & Services > iHidro > (device) > Download Diagnostics**. All sensitive data is automatically anonymized.
 
-## Comparison with cnecrea/hidroelectrica
-
-| Feature | iHidro v2 | cnecrea v2.5 |
-|---------|-----------|--------------|
-| Sensors per POD | 15-19 | ~8 |
-| Binary sensors | 3 | 0 |
-| Button/Number entities | Yes | No |
-| Auto-submit switch | Yes | No |
-| External energy sensor | Yes | No |
-| Real tariff computation | Yes | No |
-| Bill estimation | Yes | No |
-| Anomaly detection | Yes | No |
-| Prosumer support | Auto-detected | Manual |
-| Automation blueprints | 3 included | 0 |
-| Custom Lovelace card | Yes | No |
-| Token persistence | Yes | No |
-| 2-phase refresh | Yes | No |
-| Diagnostics | Anonymized | No |
-| Migration from v1.x | Automatic | N/A |
-
 ## Contributing
 
 Contributions welcome. For bugs or feature requests, open an issue on GitHub.
@@ -250,7 +230,6 @@ MIT License - See [LICENSE](LICENSE) for details.
 
 ## Credits
 
-- **@cnecrea** for the original Hidroelectrica integration that served as initial reference
 - **Home Assistant Community** for documentation and support
 
 ## Support

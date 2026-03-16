@@ -12,7 +12,7 @@ Senzori noi:
 - Data Contract (DateContract din GetBill)
 - Consum Anual (din billing history, cu Energy Dashboard support)
 - Index Anual (din meter read history, cu cascading fallback)
-- Total Plăți Anual (din payment history)
+- Total Plăți Anual (din plățile extrase din bill_history)
 - Producție Prosumator (dacă POD-ul este prosumator, cu Energy Dashboard support)
 - Compensare ANRE Prosumator (din separarea plăților pe canal)
 
@@ -60,6 +60,7 @@ from .helpers import (
     parse_date,
     is_prosumer,
     get_meter_index_cascading,
+    get_payment_list_from_bill_history,
     split_payments_by_channel,
 )
 
@@ -388,7 +389,12 @@ class IhidroMonthlyConsumptionSensor(IhidroBaseSensor):
 
 
 class IhidroLastPaymentSensor(IhidroBaseSensor):
-    """Senzor pentru ultima plată."""
+    """Senzor pentru ultima plată.
+
+    Plățile sunt extrase din bill_history (GetBillingHistoryList)
+    la result.objBillingPaymentHistoryEntity. Endpoint-ul separat
+    GetPaymentHistory nu există.
+    """
 
     _attr_device_class = SensorDeviceClass.MONETARY
     _attr_native_unit_of_measurement = CURRENCY_RON
@@ -399,26 +405,34 @@ class IhidroLastPaymentSensor(IhidroBaseSensor):
         self._attr_name = f"Ultima Plată {self._uan}"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_last_payment"
 
+    def _get_payments(self) -> List[Dict[str, Any]]:
+        """Extrage lista de plăți din bill_history."""
+        return get_payment_list_from_bill_history(self._data.get("bill_history"))
+
     @property
     def native_value(self) -> Optional[float]:
-        table = safe_get_table(self._data.get("payment_history"))
-        if table:
-            return safe_float(table[0].get("Amount"))
+        payments = self._get_payments()
+        if payments:
+            return safe_float(payments[0].get("amount") or payments[0].get("Amount"))
         return None
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
-        table = safe_get_table(self._data.get("payment_history"))
+        payments = self._get_payments()
         attrs: Dict[str, Any] = {
             ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
             ATTR_ACCOUNT_NUMBER: self._an,
         }
-        if table:
-            last = table[0]
-            amount = safe_float(last.get("Amount"))
-            attrs["payment_date"] = format_date_ro(last.get("PaymentDate"))
-            attrs["payment_method"] = last.get("PaymentMethod")
-            attrs["reference"] = last.get("Reference")
+        if payments:
+            last = payments[0]
+            amount = safe_float(last.get("amount") or last.get("Amount"))
+            attrs["payment_date"] = format_date_ro(
+                last.get("paymentDate") or last.get("PaymentDate")
+            )
+            attrs["payment_method"] = (
+                last.get("channel") or last.get("PaymentChannel") or last.get("PaymentMethod")
+            )
+            attrs["reference"] = last.get("Reference") or last.get("reference")
             attrs["amount_formatat"] = format_ron(amount)
         return attrs
 
@@ -628,7 +642,11 @@ class IhidroIndexAnualSensor(IhidroBaseSensor):
 
 
 class IhidroTotalPlatiAnualSensor(IhidroBaseSensor):
-    """Senzor pentru totalul plăților pe ultimele 12 luni."""
+    """Senzor pentru totalul plăților pe ultimele 12 luni.
+
+    Plățile sunt extrase din bill_history (GetBillingHistoryList)
+    la result.objBillingPaymentHistoryEntity.
+    """
 
     _attr_device_class = SensorDeviceClass.MONETARY
     _attr_native_unit_of_measurement = CURRENCY_RON
@@ -639,27 +657,31 @@ class IhidroTotalPlatiAnualSensor(IhidroBaseSensor):
         self._attr_name = f"Total Plăți Anual {self._uan}"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_total_plati_anual"
 
+    def _get_payments(self) -> List[Dict[str, Any]]:
+        """Extrage lista de plăți din bill_history."""
+        return get_payment_list_from_bill_history(self._data.get("bill_history"))
+
     @property
     def native_value(self) -> Optional[float]:
-        table = safe_get_table(self._data.get("payment_history"))
-        if not table:
+        payments = self._get_payments()
+        if not payments:
             return None
 
         total = 0.0
-        for payment in table:
-            total += safe_float(payment.get("Amount"))
+        for payment in payments:
+            total += safe_float(payment.get("amount") or payment.get("Amount"))
         return round(total, 2) if total > 0 else None
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
-        table = safe_get_table(self._data.get("payment_history"))
+        payments = self._get_payments()
         total = 0.0
-        if table:
-            for payment in table:
-                total += safe_float(payment.get("Amount"))
+        if payments:
+            for payment in payments:
+                total += safe_float(payment.get("amount") or payment.get("Amount"))
         attrs: Dict[str, Any] = {
             ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
-            "payments_count": len(table) if table else 0,
+            "payments_count": len(payments),
             "total_formatat": format_ron(total) if total > 0 else None,
         }
         return attrs
@@ -745,7 +767,8 @@ class IhidroCompensareANRESensor(IhidroBaseSensor):
 
     Folosește separarea plăților pe canal de plată:
     - "Comp ANRE-*" → compensări ANRE (credite prosumator)
-    Calculează totalul compensărilor din payment_history.
+    Calculează totalul compensărilor din plățile extrase din bill_history
+    (result.objBillingPaymentHistoryEntity).
     """
 
     _attr_device_class = SensorDeviceClass.MONETARY
@@ -757,24 +780,28 @@ class IhidroCompensareANRESensor(IhidroBaseSensor):
         self._attr_name = f"Compensare ANRE {self._uan}"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_compensare_anre"
 
+    def _get_payments(self) -> List[Dict[str, Any]]:
+        """Extrage lista de plăți din bill_history."""
+        return get_payment_list_from_bill_history(self._data.get("bill_history"))
+
     @property
     def native_value(self) -> Optional[float]:
         """Calculează totalul compensărilor ANRE din separarea plăților pe canal."""
-        payment_history = self._data.get("payment_history")
-        _, anre_payments = split_payments_by_channel(payment_history)
+        payments = self._get_payments()
+        _, anre_payments = split_payments_by_channel(payments)
 
         if not anre_payments:
             return None
 
         total = 0.0
         for payment in anre_payments:
-            total += safe_float(payment.get("Amount"))
+            total += safe_float(payment.get("amount") or payment.get("Amount"))
         return round(total, 2) if total != 0 else None
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
-        payment_history = self._data.get("payment_history")
-        normal_payments, anre_payments = split_payments_by_channel(payment_history)
+        payments = self._get_payments()
+        normal_payments, anre_payments = split_payments_by_channel(payments)
 
         attrs: Dict[str, Any] = {
             ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
@@ -784,18 +811,20 @@ class IhidroCompensareANRESensor(IhidroBaseSensor):
         }
 
         if anre_payments:
-            total = sum(safe_float(p.get("Amount")) for p in anre_payments)
+            total = sum(safe_float(p.get("amount") or p.get("Amount")) for p in anre_payments)
             attrs["total_formatat"] = format_ron(total)
             # Ultimele 3 compensări
             recent = []
             for p in anre_payments[:3]:
-                amount = safe_float(p.get("Amount"))
+                amount = safe_float(p.get("amount") or p.get("Amount"))
                 recent.append(
                     {
-                        "amount": p.get("Amount"),
+                        "amount": p.get("amount") or p.get("Amount"),
                         "amount_formatat": format_ron(amount),
-                        "date": format_date_ro(p.get("PaymentDate")),
-                        "channel": p.get("PaymentChannel"),
+                        "date": format_date_ro(
+                            p.get("paymentDate") or p.get("PaymentDate")
+                        ),
+                        "channel": p.get("channel") or p.get("PaymentChannel"),
                     }
                 )
             attrs["recent_compensations"] = recent

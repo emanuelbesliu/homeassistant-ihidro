@@ -91,9 +91,10 @@ async def _async_register_lovelace_card(hass: HomeAssistant) -> None:
         URL: /ihidro/ihidro-card.js
         Type: JavaScript Module
     """
-    # Evităm înregistrarea duplicată
-    if IHIDRO_CARD_URL in hass.data.get("frontend_extra_module_url", set()):
+    # Evităm înregistrarea duplicată (folosim propriul flag în hass.data)
+    if hass.data.get(f"{DOMAIN}_card_registered"):
         return
+    hass.data[f"{DOMAIN}_card_registered"] = True
 
     card_path = os.path.join(os.path.dirname(__file__), "www", "ihidro-card.js")
     if not os.path.isfile(card_path):

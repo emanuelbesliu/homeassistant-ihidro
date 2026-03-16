@@ -258,12 +258,38 @@ def get_meter_index_cascading(
 
 
 # =========================================================================
+# Extragere plăți din bill_history (GetBillingHistoryList)
+# =========================================================================
+
+
+def get_payment_list_from_bill_history(
+    bill_history: Optional[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Extrage lista de plăți din răspunsul GetBillingHistoryList.
+
+    Plățile se află la result.objBillingPaymentHistoryEntity, nu într-un
+    endpoint separat (GetPaymentHistory nu există).
+
+    Câmpurile din API (lowercase): amount, paymentDate, channel, type, status.
+    """
+    if not bill_history:
+        return []
+    result = bill_history.get("result", {})
+    if not isinstance(result, dict):
+        return []
+    payments = result.get("objBillingPaymentHistoryEntity")
+    if isinstance(payments, list):
+        return payments
+    return []
+
+
+# =========================================================================
 # Separare plăți normale vs. compensări ANRE
 # =========================================================================
 
 
 def split_payments_by_channel(
-    payment_history: Optional[Dict[str, Any]],
+    payments: List[Dict[str, Any]],
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Separă plățile în plăți normale și compensări ANRE.
 
@@ -271,15 +297,17 @@ def split_payments_by_channel(
     - "Incasari-*" → plăți normale
     - "Comp ANRE-*" → compensări ANRE (credite prosumator)
 
+    Args:
+        payments: Lista de plăți extrasă cu get_payment_list_from_bill_history().
+
     Returns:
         Tuple (plati_normale, compensari_anre)
     """
-    table = safe_get_table(payment_history)
     normal: List[Dict[str, Any]] = []
     anre: List[Dict[str, Any]] = []
 
-    for payment in table:
-        channel = payment.get("PaymentChannel", "") or ""
+    for payment in payments:
+        channel = payment.get("channel", "") or payment.get("PaymentChannel", "") or ""
         if channel.startswith("Comp ANRE"):
             anre.append(payment)
         else:

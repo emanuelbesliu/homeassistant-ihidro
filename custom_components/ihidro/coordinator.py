@@ -2,11 +2,19 @@
 
 Implementează:
 - Un coordinator per cont (UAN) — nu un singur coordinator global
-- Refresh în 2 faze: light (fiecare ciclu) și heavy (la fiecare al 4-lea ciclu)
+- Refresh în 3 faze:
+  - Faza 1 (paralel): endpoint-uri independente (bill, meter, window, pods, master_data)
+  - Faza 2 (secvențial): endpoint-uri dependente de pods (previous_meter_read)
+  - Heavy refresh (la fiecare al 4-lea ciclu): billing history, usage, counter series,
+    meter read history (cele din urmă 2 necesită InstallationNumber + podValue din GetPods)
 - Paralelism cu asyncio.gather() pentru apeluri API independente
 - Token persistence (export/import la fiecare refresh)
 - Detectare evenimente (fereastră citire, facturi noi, restanțe) cu bus events
 - Active counter series detection
+
+Notă: GetPaymentHistory NU există ca endpoint separat.
+Datele de plată sunt incluse în răspunsul GetBillingHistoryList
+(câmpul objBillingPaymentHistoryEntity).
 """
 
 import asyncio
@@ -49,9 +57,10 @@ class IhidroAccountCoordinator(DataUpdateCoordinator):
     """Coordinator per cont (UAN) pentru actualizarea datelor iHidro.
 
     Fiecare instanță gestionează un singur POD/UAN.
-    Light refresh: factura curentă, detalii contor, fereastră citire, pods.
-    Heavy refresh (la fiecare al N-lea ciclu): istoric facturi, plăți,
-    consum, meter read history, counter series, previous meter read.
+    Faza 1 (paralel): factura curentă, detalii contor, fereastră citire, pods, master data.
+    Faza 2 (secvențial): previous_meter_read (necesită pods).
+    Heavy refresh (la fiecare al N-lea ciclu): istoric facturi, consum,
+    meter read history, counter series (cele din urmă necesită pods).
     """
 
     def __init__(
@@ -93,7 +102,20 @@ class IhidroAccountCoordinator(DataUpdateCoordinator):
         )
 
     async def _async_update_data(self) -> Dict[str, Any]:
-        """Actualizează datele de la API pentru acest cont."""
+        """Actualizează datele de la API pentru acest cont.
+
+        Strategia de refresh în 2 faze:
+        - Faza 1 (paralel, fără dependențe): current_bill, meter_details,
+          meter_window, pods, master_data_status
+        - Faza 2 (depinde de pods): get_previous_meter_read (necesită
+          InstallationNumber, podValue, customerNumber din GetPods)
+        - Heavy refresh (la fiecare al N-lea ciclu): bill_history, usage,
+          meter_read_history, meter_counter_series (cele din urmă 2
+          necesită InstallationNumber + podValue din GetPods)
+
+        Notă: GetPaymentHistory NU există ca endpoint separat.
+        Datele de plată sunt incluse în răspunsul GetBillingHistoryList.
+        """
         try:
             # Asigurăm autentificarea
             await self.api.login_if_needed()
@@ -118,7 +140,6 @@ class IhidroAccountCoordinator(DataUpdateCoordinator):
                 "master_data_status": None,
                 # Heavy refresh only
                 "bill_history": None,
-                "payment_history": None,
                 "usage_history": None,
                 "daily_usage": None,
                 "generation_data": None,
@@ -136,7 +157,6 @@ class IhidroAccountCoordinator(DataUpdateCoordinator):
             if not is_heavy and self.data:
                 for key in (
                     "bill_history",
-                    "payment_history",
                     "usage_history",
                     "daily_usage",
                     "generation_data",
@@ -147,62 +167,132 @@ class IhidroAccountCoordinator(DataUpdateCoordinator):
                 ):
                     data[key] = self.data.get(key)
 
-            # === Light refresh (fiecare ciclu) ===
-            light_tasks = {
+            # =============================================================
+            # Faza 1: Endpoint-uri independente (paralel)
+            # =============================================================
+            phase1_tasks = {
                 "current_bill": self.api.get_current_bill(self.uan, self.an),
                 "meter_details": self.api.get_multi_meter_details(self.uan, self.an),
                 "meter_window": self.api.get_window_dates(self.uan, self.an),
                 "pods": self.api.get_pods(self.uan, self.an),
-                "master_data_status": self.api.get_master_data_status(self.uan, self.an),
+                "master_data_status": self.api.get_master_data_status(),
             }
 
-            # === Heavy refresh (la fiecare al N-lea ciclu) ===
+            keys1 = list(phase1_tasks.keys())
+            results1 = await asyncio.gather(
+                *phase1_tasks.values(), return_exceptions=True
+            )
+
+            for key, result in zip(keys1, results1):
+                if isinstance(result, Exception):
+                    _LOGGER.warning(
+                        "Eroare la %s pentru POD %s: %s", key, self.uan, result
+                    )
+                    if self.data and key in self.data:
+                        data[key] = self.data[key]
+                else:
+                    data[key] = result
+
+            # =============================================================
+            # Extragere InstallationNumber / podValue / customerNumber
+            # din GetPods (necesare pentru faza 2 și heavy refresh)
+            # =============================================================
+            installation_number = ""
+            pod_value = ""
+            customer_number = ""
+
+            pods_resp = data.get("pods")
+            if pods_resp and isinstance(pods_resp, dict):
+                pods_data = pods_resp.get("result", {})
+                if isinstance(pods_data, dict):
+                    pods_data = pods_data.get("Data", [])
+                if isinstance(pods_data, list) and pods_data:
+                    first_pod = pods_data[0]
+                    installation_number = str(
+                        first_pod.get("installation",
+                                      first_pod.get("InstallationNumber", ""))
+                    )
+                    pod_value = str(
+                        first_pod.get("pod",
+                                      first_pod.get("podValue", ""))
+                    )
+                    customer_number = str(
+                        first_pod.get("accountID", "")
+                    )
+
+            _LOGGER.debug(
+                "iHidro [%s]: Pods extras: installation='%s', pod='%s', "
+                "customerNumber='%s'.",
+                self.uan, installation_number, pod_value, customer_number,
+            )
+
+            # =============================================================
+            # Faza 2: GetPreviousMeterRead (depinde de pods)
+            # Returnează None dacă fereastra este închisă (HTTP 400)
+            # =============================================================
+            try:
+                prev_read = await self.api.get_previous_meter_read(
+                    utility_account_number=self.uan,
+                    installation_number=installation_number,
+                    pod_value=pod_value,
+                    customer_number=customer_number,
+                )
+                data["previous_meter_read"] = prev_read
+            except Exception as err:
+                _LOGGER.warning(
+                    "Eroare la previous_meter_read pentru POD %s: %s",
+                    self.uan, err,
+                )
+                if self.data and "previous_meter_read" in self.data:
+                    data["previous_meter_read"] = self.data["previous_meter_read"]
+
+            # =============================================================
+            # Heavy refresh (la fiecare al N-lea ciclu)
+            # =============================================================
             if is_heavy:
                 to_date = datetime.now()
                 from_date = to_date.replace(year=to_date.year - 1)
                 from_str = from_date.strftime("%m/%d/%Y")
                 to_str = to_date.strftime("%m/%d/%Y")
 
-                light_tasks.update(
-                    {
-                        "bill_history": self.api.get_bill_history(
-                            self.uan, self.an, from_str, to_str
-                        ),
-                        "payment_history": self.api.get_payment_history(
-                            self.uan, self.an, from_str, to_str
-                        ),
-                        "usage_history": self.api.get_usage_generation(self.uan, self.an),
-                        "daily_usage": self.api.get_daily_usage(self.uan, self.an),
-                        "generation_data": self.api.get_generation_data(self.uan, self.an),
-                        "net_usage": self.api.get_net_usage(self.uan, self.an),
-                        "meter_read_history": self.api.get_meter_read_history(
-                            self.uan, self.an
-                        ),
-                        "meter_counter_series": self.api.get_meter_counter_series(
-                            self.uan, self.an
-                        ),
-                        "previous_meter_read": self.api.get_previous_meter_read(
-                            self.uan, self.an
-                        ),
-                    }
+                if not installation_number or not pod_value:
+                    _LOGGER.warning(
+                        "iHidro [%s]: InstallationNumber/podValue GOALE! "
+                        "GetMeterCounterSeries și GetMeterReadHistory "
+                        "vor probabil eșua.",
+                        self.uan,
+                    )
+
+                heavy_tasks = {
+                    "bill_history": self.api.get_bill_history(
+                        self.uan, self.an, from_str, to_str
+                    ),
+                    "usage_history": self.api.get_usage_generation(self.uan, self.an),
+                    "daily_usage": self.api.get_daily_usage(self.uan, self.an),
+                    "generation_data": self.api.get_generation_data(self.uan, self.an),
+                    "net_usage": self.api.get_net_usage(self.uan, self.an),
+                    "meter_counter_series": self.api.get_meter_counter_series(
+                        self.uan, installation_number, pod_value
+                    ),
+                    "meter_read_history": self.api.get_meter_read_history(
+                        self.uan, installation_number, pod_value
+                    ),
+                }
+
+                keys_h = list(heavy_tasks.keys())
+                results_h = await asyncio.gather(
+                    *heavy_tasks.values(), return_exceptions=True
                 )
 
-            # Rulăm toate task-urile în paralel
-            keys = list(light_tasks.keys())
-            results = await asyncio.gather(
-                *light_tasks.values(), return_exceptions=True
-            )
-
-            for key, result in zip(keys, results):
-                if isinstance(result, Exception):
-                    _LOGGER.warning(
-                        "Eroare la %s pentru POD %s: %s", key, self.uan, result
-                    )
-                    # Păstrăm datele anterioare dacă apelul eșuează
-                    if self.data and key in self.data:
-                        data[key] = self.data[key]
-                else:
-                    data[key] = result
+                for key, result in zip(keys_h, results_h):
+                    if isinstance(result, Exception):
+                        _LOGGER.warning(
+                            "Eroare la %s pentru POD %s: %s", key, self.uan, result
+                        )
+                        if self.data and key in self.data:
+                            data[key] = self.data[key]
+                    else:
+                        data[key] = result
 
             # Detectăm seria activă de contorizare (din heavy data)
             if data.get("meter_counter_series"):

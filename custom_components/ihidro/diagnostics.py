@@ -90,7 +90,6 @@ async def async_get_config_entry_diagnostics(
                 "pods",
                 "master_data_status",
                 "bill_history",
-                "payment_history",
                 "usage_history",
                 "meter_read_history",
                 "meter_counter_series",
