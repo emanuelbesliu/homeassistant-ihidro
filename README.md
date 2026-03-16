@@ -376,6 +376,12 @@ MIT License - Vezi [LICENSE](LICENSE) pentru detalii.
 
 **🔌 Dezvoltat cu ❤️ pentru comunitatea Home Assistant România**
 
+## ☕ Support the Developer
+
+If you find this project useful, consider buying me a coffee!
+
+[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/emanuelbesliu)
+
+---
+
 *Această integrare nu este afiliată oficial cu Hidroelectrica România.*
-# Test dependency update
-# Test v2
