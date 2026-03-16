@@ -7,28 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.0.0](https://github.com/emanuelbesliu/homeassistant-ihidro/compare/v1.4.3...v2.0.0) (2026-03-16)
 
-
 ### ⚠ BREAKING CHANGES
 
 * Complete integration rewrite. All entities are recreated. Config version bumped to 3 with automatic migration from v1.x.
 
 ### Features
 
-* v3.0.0 complete rewrite — direct API, 22-26 entities per POD, auto-submit ([951d07c](https://github.com/emanuelbesliu/homeassistant-ihidro/commit/951d07c5014fa00fb83c8ef1f0d6157988e154a5))
-
+* v2.0.0 complete rewrite — direct API, 22-26 entities per POD, auto-submit ([951d07c](https://github.com/emanuelbesliu/homeassistant-ihidro/commit/951d07c5014fa00fb83c8ef1f0d6157988e154a5))
 
 ### Bug Fixes
 
 * add CONFIG_SCHEMA and lovelace after_dependency for hassfest validation ([9cb6add](https://github.com/emanuelbesliu/homeassistant-ihidro/commit/9cb6add450d0dc9f99df40246253b7cf1423e367))
 * remove invalid BinarySensorDeviceClass.PAYMENT (no such device class) ([e507d1a](https://github.com/emanuelbesliu/homeassistant-ihidro/commit/e507d1a0e00a789a32f807fe508acc54224ba48d))
-
-## [3.0.0] - 2026-03-16
-
-### BREAKING CHANGES
-- Complete rewrite of the integration — all entities are recreated
-- Config version bumped to 3 (automatic migration from v1.x)
-- Removed browser service dependency (no more Docker container needed)
-- Removed `requests` and `beautifulsoup4` dependencies — now uses `aiohttp` (provided by HA)
 
 ### Added
 - **19 sensor entities** per POD (up from 6): current balance, last bill, meter reading, monthly consumption, last payment, POD info, contract date, annual consumption, annual index, annual payments total, daily consumption, days until due, real tariff, invoice estimation, consumption anomaly detection; prosumer-only: production, ANRE compensation, generation, net usage

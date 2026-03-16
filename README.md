@@ -1,6 +1,6 @@
 # iHidro - Home Assistant Integration for Hidroelectrica Romania
 
-[![Version](https://img.shields.io/badge/version-3.0.0-blue.svg)](https://github.com/emanuelbesliu/ihidro)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/emanuelbesliu/ihidro)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.1+-blue.svg)](https://www.home-assistant.io/)
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -161,7 +161,7 @@ custom_components/ihidro/
 ├── coordinator.py           # Per-UAN coordinator with 2-phase refresh
 ├── diagnostics.py           # Anonymized diagnostic dump
 ├── helpers.py               # Utility functions (~380 lines)
-├── manifest.json            # Integration metadata (v3.0.0)
+├── manifest.json            # Integration metadata (v2.0.0)
 ├── number.py                # Meter reading input entity
 ├── sensor.py                # 19 sensor classes (~1750 lines)
 ├── services.yaml            # Service definitions
@@ -222,7 +222,7 @@ Download diagnostics from **Settings > Devices & Services > iHidro > (device) > 
 
 ## Comparison with cnecrea/hidroelectrica
 
-| Feature | iHidro v3 | cnecrea v2.5 |
+| Feature | iHidro v2 | cnecrea v2.5 |
 |---------|-----------|--------------|
 | Sensors per POD | 15-19 | ~8 |
 | Binary sensors | 3 | 0 |
