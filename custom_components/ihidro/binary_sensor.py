@@ -122,7 +122,6 @@ class IhidroSoldFacturaBinarySensor(IhidroBaseBinarySensor):
     off (is_on=False): Sold > 0 (neplătit)
     """
 
-    _attr_device_class = BinarySensorDeviceClass.PAYMENT
     _attr_icon = "mdi:check-decagram"
 
     def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
