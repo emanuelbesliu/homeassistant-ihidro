@@ -1,6 +1,7 @@
 {
   "domain": "ihidro",
   "name": "iHidro Romania",
+  "after_dependencies": ["lovelace"],
   "codeowners": ["@emanuelbesliu"],
   "config_flow": true,
   "documentation": "https://github.com/emanuelbesliu/ihidro",
