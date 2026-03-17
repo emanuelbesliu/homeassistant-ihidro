@@ -427,14 +427,23 @@ class IhidroMeterReadingSensor(IhidroEnergySensorMixin, IhidroBaseSensor):
             ATTR_ACCOUNT_NUMBER: self._an,
         }
 
-        # Sursa datelor API
+        # Sursa datelor API (mereu calculat, pentru referință)
         active_meter = self._data.get("active_meter")
         api_value, source = get_meter_index_cascading(
             self._data, register="1.8.0", active_meter=active_meter
         )
-        attrs["data_source"] = source
         attrs["active_meter"] = active_meter
         attrs["api_index"] = api_value
+        attrs["api_source"] = source
+
+        # Determinăm sursa efectivă (aceeași logică ca native_value)
+        live = self._compute_live_index()
+        if live is not None:
+            attrs["data_source"] = "energy_sensor_live"
+        elif api_value is not None:
+            attrs["data_source"] = source
+        else:
+            attrs["data_source"] = None
 
         # Info din meter_read_history
         # IMPORTANT: Lista este sortată ASCENDENT (cel mai vechi primul).
@@ -571,7 +580,9 @@ class IhidroMonthlyConsumptionSensor(IhidroEnergySensorMixin, IhidroBaseSensor):
             ATTR_ACCOUNT_NUMBER: self._an,
         }
 
+        # Determinăm sursa efectivă (aceeași logică ca native_value)
         tentative = get_tentative_data(self._data.get("daily_usage"))
+        used_tentative = False
         if tentative:
             so_far = safe_float(tentative.get("SoFar"))
             expected = safe_float(tentative.get("ExpectedUsage"))
@@ -582,9 +593,24 @@ class IhidroMonthlyConsumptionSensor(IhidroEnergySensorMixin, IhidroBaseSensor):
             attrs["expected_kwh"] = format_number_ro(expected) + " kWh" if expected > 0 else None
             attrs["average_kwh"] = format_number_ro(average) + " kWh" if average > 0 else None
             attrs["highest_kwh"] = format_number_ro(highest) + " kWh" if highest > 0 else None
-            attrs["data_source"] = "daily_usage_tentative"
-        else:
-            # Info derivată din meter_read_history (cele mai recente primele)
+            if so_far > 0:
+                used_tentative = True
+                attrs["data_source"] = "daily_usage_tentative"
+
+        if not used_tentative:
+            # Verificăm dacă senzorul extern a fost folosit
+            live_index = self._compute_live_index()
+            period_start = self._get_period_start_index()
+            if live_index is not None and period_start is not None:
+                consumption = live_index - period_start
+                if consumption > 0:
+                    attrs["data_source"] = "energy_sensor_live"
+                else:
+                    attrs["data_source"] = "meter_read_history_avg"
+            else:
+                attrs["data_source"] = "meter_read_history_avg"
+
+            # Info derivată din meter_read_history
             history = get_data_list(self._data.get("meter_read_history"))
             if history:
                 recent = []
@@ -600,7 +626,6 @@ class IhidroMonthlyConsumptionSensor(IhidroEnergySensorMixin, IhidroBaseSensor):
                         if len(recent) >= 4:
                             break
                 attrs["recent_readings"] = recent
-                attrs["data_source"] = "meter_read_history_delta"
 
         # Info senzor extern de energie (dacă configurat)
         attrs.update(self._energy_extra_attrs())
@@ -1230,7 +1255,9 @@ class IhidroDailyConsumptionSensor(IhidroEnergySensorMixin, IhidroBaseSensor):
             ATTR_ACCOUNT_NUMBER: self._an,
         }
 
+        # Determinăm sursa efectivă (aceeași logică ca native_value)
         tentative = get_tentative_data(self._data.get("daily_usage"))
+        used_tentative = False
         if tentative:
             so_far = safe_float(tentative.get("SoFar"))
             expected = safe_float(tentative.get("ExpectedUsage"))
@@ -1241,15 +1268,18 @@ class IhidroDailyConsumptionSensor(IhidroEnergySensorMixin, IhidroBaseSensor):
             attrs["average_kwh"] = format_number_ro(average) + " kWh" if average > 0 else None
             attrs["highest_kwh"] = format_number_ro(highest) + " kWh" if highest > 0 else None
             attrs["usage_cycle"] = tentative.get("UsageCycle")
-            attrs["data_source"] = "daily_usage_tentative"
-        else:
-            # Determinăm sursa reală folosită
+            if so_far > 0 or average > 0:
+                used_tentative = True
+                attrs["data_source"] = "daily_usage_tentative"
+
+        if not used_tentative:
+            # Verificăm dacă senzorul extern a fost folosit
             live_index = self._compute_live_index()
             period = self._get_period_info()
             if live_index is not None and period:
                 monthly = live_index - period["period_start_index"]
                 if monthly > 0:
-                    attrs["data_source"] = "energy_sensor_daily_avg"
+                    attrs["data_source"] = "energy_sensor_live"
                     attrs["consum_lunar_live"] = format_number_ro(monthly) + " kWh"
                     attrs["zile_in_perioada"] = period["days_elapsed"]
                 else:
@@ -1907,6 +1937,7 @@ class IhidroEstimareFacturaSensor(IhidroBaseSensor):
         external_estimate = self._estimate_from_external_sensor(bills)
 
         if external_estimate is not None:
+            attrs["data_source"] = "energy_sensor_live"
             attrs["metoda_calcul"] = "senzor_extern"
             attrs["senzor_extern"] = external_estimate["external_sensor"]
             attrs["senzor_extern_kwh"] = external_estimate["external_sensor_kwh"]
@@ -1924,6 +1955,7 @@ class IhidroEstimareFacturaSensor(IhidroBaseSensor):
             attrs["tarif_curent"] = f"{external_estimate['current_tariff']:.4f} lei/kWh"
         else:
             # Fallback: metoda clasică cu media pe 3 luni
+            attrs["data_source"] = "medie_3_luni"
             attrs["metoda_calcul"] = "medie_3_luni"
             if self._get_energy_sensor_id():
                 # Senzor configurat dar nu s-a putut folosi
