@@ -5,6 +5,13 @@ All notable changes to the iHidro Romania Home Assistant Integration will be doc
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.7](https://github.com/emanuelbesliu/homeassistant-ihidro/compare/v2.0.6...v2.0.7) (2026-03-17)
+
+
+### Bug Fixes
+
+* resolve 'bill_table' not defined in coordinator overdue detection ([3d8fbeb](https://github.com/emanuelbesliu/homeassistant-ihidro/commit/3d8fbebcab662c3f3eca8b975bb81c9242532505))
+
 ## [2.0.6](https://github.com/emanuelbesliu/homeassistant-ihidro/compare/v2.0.5...v2.0.6) (2026-03-17)
 
 
