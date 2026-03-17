@@ -19,6 +19,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntryType
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
@@ -150,12 +151,13 @@ class IhidroMeterReadingNumber(CoordinatorEntity, NumberEntity):
         return attrs
 
 
-class IhidroAutoSubmitDelayNumber(CoordinatorEntity, NumberEntity):
+class IhidroAutoSubmitDelayNumber(CoordinatorEntity, RestoreEntity, NumberEntity):
     """Entitate Number pentru configurarea delay-ului de autotransmitere.
 
     Specifică câte zile după deschiderea ferestrei de citire să aștepte
     înainte de a trimite automat indexul.
 
+    Folosește RestoreEntity pentru a persista valoarea între restarturile HA.
     Indisponibilă (greyed out) dacă nu este configurat senzor de energie extern.
     """
 
@@ -183,6 +185,27 @@ class IhidroAutoSubmitDelayNumber(CoordinatorEntity, NumberEntity):
 
         # Valoarea stocată intern (default: 1 zi)
         self._value: float = 1.0
+
+    async def async_added_to_hass(self) -> None:
+        """Restaurează valoarea salvată la adăugarea în HA."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state and last_state.state not in (
+            "unknown",
+            "unavailable",
+            None,
+        ):
+            try:
+                restored = float(last_state.state)
+                if self._attr_native_min_value <= restored <= self._attr_native_max_value:
+                    self._value = restored
+                    _LOGGER.debug(
+                        "Delay autotransmitere restaurat la %.0f zile pentru POD %s",
+                        self._value,
+                        self._uan,
+                    )
+            except (ValueError, TypeError):
+                pass
 
     @property
     def device_info(self) -> Dict[str, Any]:
@@ -213,6 +236,7 @@ class IhidroAutoSubmitDelayNumber(CoordinatorEntity, NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         """Setează delay-ul."""
         self._value = value
+        self.async_write_ha_state()
         _LOGGER.debug(
             "Delay autotransmitere setat la %.0f zile pentru POD %s",
             value,
