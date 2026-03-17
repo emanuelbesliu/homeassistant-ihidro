@@ -489,7 +489,10 @@ class IhidroMonthlyConsumptionSensor(IhidroEnergySensorMixin, IhidroBaseSensor):
     def _get_period_start_index(self) -> Optional[float]:
         """Returnează indexul de la începutul perioadei curente.
 
-        Citirile sunt sortate ASCENDENT: readings[-2] = start perioadă curentă.
+        Citirile sunt sortate ASCENDENT (cel mai vechi primul).
+        Cautăm readings[-2] ca start perioadă, dar dacă delta este negativă
+        (corecție de regularizare, ex: 5406 → 5396), mergem mai în spate
+        pentru a găsi un period_start cu delta pozitivă.
         """
         history = get_data_list(self._data.get("meter_read_history"))
         if not history:
@@ -501,8 +504,13 @@ class IhidroMonthlyConsumptionSensor(IhidroEnergySensorMixin, IhidroBaseSensor):
                 idx = safe_float(entry.get("Index") or entry.get("MeterReading"))
                 if idx > 0:
                     readings.append(idx)
-        if len(readings) >= 2:
-            return readings[-2]
+        if len(readings) < 2:
+            return None
+        latest = readings[-1]
+        # Mergem înapoi de la [-2] căutând un period_start cu delta pozitivă
+        for i in range(len(readings) - 2, -1, -1):
+            if latest - readings[i] > 0:
+                return readings[i]
         return None
 
     @property
@@ -523,21 +531,36 @@ class IhidroMonthlyConsumptionSensor(IhidroEnergySensorMixin, IhidroBaseSensor):
                 if consumption > 0:
                     return round(consumption, 2)
 
-        # Fallback 3: derivă din diferența ultimelor 2 indexuri din meter_read_history
+        # Fallback 3: derivă din diferența indexurilor din meter_read_history
+        # Dacă ultimele 2 au delta negativă (corecție regularizare), căutăm
+        # un interval mai larg cu delta pozitivă și facem media lunară.
         history = get_data_list(self._data.get("meter_read_history"))
         if history and len(history) >= 2:
             readings = []
+            dates = []
             for entry in history:
                 reg = entry.get("Registers", "") or entry.get("Register", "")
                 if reg == "1.8.0" or (reg and "_P" not in reg.upper()):
                     idx = safe_float(entry.get("Index") or entry.get("MeterReading"))
+                    dt = parse_date(entry.get("Date"))
                     if idx > 0:
                         readings.append(idx)
+                        dates.append(dt)
             if len(readings) >= 2:
-                # Ascendent: [-1] = recent, [-2] = precedent
-                consumption = readings[-1] - readings[-2]
-                if consumption > 0:
-                    return round(consumption, 2)
+                latest = readings[-1]
+                # Căutăm cel mai recent interval pozitiv
+                for i in range(len(readings) - 2, -1, -1):
+                    delta = latest - readings[i]
+                    if delta > 0:
+                        # Calculăm media lunară pe acest interval
+                        if dates[i] and dates[-1]:
+                            span_days = (dates[-1] - dates[i]).days
+                            if span_days > 0:
+                                months = max(span_days / 30.0, 1.0)
+                                return round(delta / months, 2)
+                        # Fallback: dacă nu avem date, returnăm delta direct
+                        # (presupunem o singură perioadă)
+                        return round(delta, 2)
 
         return None
 
@@ -1115,6 +1138,9 @@ class IhidroDailyConsumptionSensor(IhidroEnergySensorMixin, IhidroBaseSensor):
 
         Returnează dict cu period_start_index, period_start_date, days_elapsed.
         Folosit pentru a deriva consumul zilnic din senzorul extern.
+
+        Dacă delta ultimelor 2 citiri e negativă (corecție regularizare),
+        merge mai în spate pentru a găsi un interval pozitiv.
         """
         history = get_data_list(self._data.get("meter_read_history"))
         if not history or len(history) < 2:
@@ -1133,17 +1159,21 @@ class IhidroDailyConsumptionSensor(IhidroEnergySensorMixin, IhidroBaseSensor):
         if len(filtered) < 2:
             return None
 
-        # [-1] = cel mai recent, [-2] = start perioadă curentă
-        period_start = filtered[-2]
-        days_elapsed = (datetime.now() - period_start["date"]).days
-        if days_elapsed <= 0:
-            days_elapsed = 1  # evităm div by zero
+        latest = filtered[-1]
+        # Mergem înapoi pentru a găsi un interval pozitiv
+        for i in range(len(filtered) - 2, -1, -1):
+            if latest["index"] - filtered[i]["index"] > 0:
+                period_start = filtered[i]
+                days_elapsed = (datetime.now() - period_start["date"]).days
+                if days_elapsed <= 0:
+                    days_elapsed = 1
+                return {
+                    "period_start_index": period_start["index"],
+                    "period_start_date": period_start["date"],
+                    "days_elapsed": days_elapsed,
+                }
 
-        return {
-            "period_start_index": period_start["index"],
-            "period_start_date": period_start["date"],
-            "days_elapsed": days_elapsed,
-        }
+        return None
 
     @property
     def native_value(self) -> Optional[float]:
@@ -1167,20 +1197,29 @@ class IhidroDailyConsumptionSensor(IhidroEnergySensorMixin, IhidroBaseSensor):
                     daily = monthly_consumption / period["days_elapsed"]
                     return round(daily, 2)
 
-        # Fallback 3: consum lunar din meter_read_history / 30
+        # Fallback 3: consum din meter_read_history / zile (cu handling regularizare)
         history = get_data_list(self._data.get("meter_read_history"))
         if history and len(history) >= 2:
             readings = []
+            dates = []
             for entry in history:
                 reg = entry.get("Registers", "") or entry.get("Register", "")
                 if reg == "1.8.0" or (reg and "_P" not in reg.upper()):
                     idx = safe_float(entry.get("Index") or entry.get("MeterReading"))
+                    dt = parse_date(entry.get("Date"))
                     if idx > 0:
                         readings.append(idx)
+                        dates.append(dt)
             if len(readings) >= 2:
-                monthly = readings[-1] - readings[-2]
-                if monthly > 0:
-                    return round(monthly / 30, 2)
+                latest = readings[-1]
+                for i in range(len(readings) - 2, -1, -1):
+                    delta = latest - readings[i]
+                    if delta > 0:
+                        if dates[i] and dates[-1]:
+                            span_days = (dates[-1] - dates[i]).days
+                            if span_days > 0:
+                                return round(delta / span_days, 2)
+                        return round(delta / 30, 2)
 
         return None
 

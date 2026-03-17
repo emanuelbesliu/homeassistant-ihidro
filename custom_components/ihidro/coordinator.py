@@ -187,7 +187,8 @@ class IhidroAccountCoordinator(DataUpdateCoordinator):
             for key, result in zip(keys1, results1):
                 if isinstance(result, Exception):
                     _LOGGER.warning(
-                        "Eroare la %s pentru POD %s: %s", key, self.uan, result
+                        "Eroare la %s pentru POD %s: %s: %s",
+                        key, self.uan, type(result).__name__, result,
                     )
                     if self.data and key in self.data:
                         data[key] = self.data[key]
@@ -288,7 +289,8 @@ class IhidroAccountCoordinator(DataUpdateCoordinator):
                 for key, result in zip(keys_h, results_h):
                     if isinstance(result, Exception):
                         _LOGGER.warning(
-                            "Eroare la %s pentru POD %s: %s", key, self.uan, result
+                            "Eroare la %s pentru POD %s: %s: %s",
+                            key, self.uan, type(result).__name__, result,
                         )
                         if self.data and key in self.data:
                             data[key] = self.data[key]
