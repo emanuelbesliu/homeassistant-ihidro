@@ -5,6 +5,13 @@ All notable changes to the iHidro Romania Home Assistant Integration will be doc
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.5](https://github.com/emanuelbesliu/homeassistant-ihidro/compare/v2.0.4...v2.0.5) (2026-03-17)
+
+
+### Bug Fixes
+
+* await async_register_static_paths and handle LovelaceData object ([c8c5287](https://github.com/emanuelbesliu/homeassistant-ihidro/commit/c8c52873005351deeca402a816364a3fd3293e66))
+
 ## [2.0.4](https://github.com/emanuelbesliu/homeassistant-ihidro/compare/v2.0.3...v2.0.4) (2026-03-17)
 
 
