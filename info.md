@@ -4,20 +4,19 @@ Integrare completa pentru monitorizarea si gestionarea conturilor de energie ele
 
 ## Functionalitati principale
 
-- **22-26 entitati per POD** (senzori, butoane, switch-uri, number entities)
-- Monitorizare sold curent, facturi, plati si consum
+- **21-25 entitati per POD** (senzori, buton, switch, number entities)
+- **17 senzori standard**: sold, facturi, plati, consum lunar/zilnic/anual, index contor, estimare factura, tarif real, anomalie consum
+- **4 senzori prosumator** (auto-detectati): productie, compensare ANRE, generare energie, consum net
 - Suport pentru **multiple POD-uri** (puncte de consum)
-- Suport complet **prosumatori** (productie, compensare ANRE)
-- **Trimitere automata index contor** cu senzor extern de energie (optional)
+- **Senzor extern de energie optional** (ex: Shelly EM, ISMeter EM2) pentru tracking live index si consum
+- **Trimitere automata index contor** cu calibrare offset si delay configurabil
 - **Trimitere manuala index** direct din HA (buton + number entity)
-- Pre-validare index inainte de trimitere (GetMeterValue)
-- Senzori de estimare factura, tarif real, anomalie consum
-- Binary sensors: fereastra de citire, factura restanta, scadenta
-- **3 blueprint-uri** de automatizare incluse
-- **Lovelace card personalizat** inclus
+- Pre-validare index inainte de trimitere
+- **3 blueprint-uri** de automatizare incluse (reminder plata, notificare fereastra citire, alerta factura restanta)
+- **Lovelace card personalizat** inclus (auto-inregistrat)
 - Traduceri complete romana/engleza
-- Diagnostice anonimizate
-- Migrare automata de la versiunile anterioare (v1.x)
+- Diagnostice anonimizate cu snapshot senzori
+- Migrare automata de la versiunile anterioare (v1.x, v2.x)
 
 ## Instalare
 
@@ -40,15 +39,16 @@ Copiaza directorul `custom_components/ihidro` in directorul `custom_components` 
 2. **Settings -> Devices & Services -> Add Integration**
 3. Cauta "iHidro Romania"
 4. Introduceti credentialele ihidro.ro
-5. (Optional) Configurati senzor de energie extern in optiunile integrarii
+5. Selectati POD-urile dorite
+6. (Optional) Selectati un senzor extern de energie pentru tracking live si autotransmitere
 
 ## Documentatie Completa
 
 Vezi [README complet](https://github.com/emanuelbesliu/homeassistant-ihidro/blob/main/README.md) pentru:
-- Lista completa de entitati
+- Lista completa de entitati si descrieri
 - Ghid autotransmitere index
+- Configurare senzor extern de energie
 - Exemple de automatizari
-- Configurare dashboard
 - Troubleshooting
 
 ## Support
