@@ -102,14 +102,23 @@ async def async_get_config_entry_diagnostics(
                     # Extragem Table count fără date sensibile
                     result_data = value.get("result", {}).get("Data", {})
                     tables = {}
-                    for table_key, table_val in result_data.items():
-                        if isinstance(table_val, list):
-                            tables[table_key] = {
-                                "count": len(table_val),
-                                "sample_keys": (
-                                    list(table_val[0].keys()) if table_val else []
-                                ),
-                            }
+                    if isinstance(result_data, dict):
+                        for table_key, table_val in result_data.items():
+                            if isinstance(table_val, list):
+                                tables[table_key] = {
+                                    "count": len(table_val),
+                                    "sample_keys": (
+                                        list(table_val[0].keys()) if table_val else []
+                                    ),
+                                }
+                    elif isinstance(result_data, list):
+                        # Some endpoints return Data as a list directly (e.g. GetPods)
+                        tables["_list"] = {
+                            "count": len(result_data),
+                            "sample_keys": (
+                                list(result_data[0].keys()) if result_data and isinstance(result_data[0], dict) else []
+                            ),
+                        }
                     endpoints_summary[key] = {
                         "status": "ok",
                         "tables": tables,
