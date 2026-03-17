@@ -372,9 +372,11 @@ def get_meter_index_cascading(
         "meter_read_history", "previous_meter_read", "meter_counter_series", "none"
     """
     # Sursa 1: GetMeterReadHistory
+    # IMPORTANT: API returnează lista sortată ASCENDENT (cele mai vechi primele).
+    # Iterăm în ordine inversă (reversed) pentru a obține cea mai recentă citire.
     history_entries = get_data_list(data.get("meter_read_history"))
     if history_entries:
-        for entry in history_entries:
+        for entry in reversed(history_entries):
             entry_register = entry.get("Registers", "") or entry.get("Register", "")
             entry_meter = entry.get("CounterSeries", "") or entry.get("MeterNumber", "")
             if entry_register == register:

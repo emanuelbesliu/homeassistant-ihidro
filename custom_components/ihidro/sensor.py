@@ -3,8 +3,8 @@
 Senzori existenți (rewritten):
 - Sold Curent (factură curentă)
 - Ultima Factură
-- Index Contor (cu Energy Dashboard support)
-- Consum Lunar (cu Energy Dashboard support)
+- Index Contor (cu Energy Dashboard support + live tracking din senzor extern)
+- Consum Lunar (cu Energy Dashboard support + live tracking din senzor extern)
 - Ultima Plată
 - POD Info
 
@@ -15,10 +15,10 @@ Senzori noi:
 - Total Plăți Anual (din plățile extrase din bill_history)
 - Producție Prosumator (dacă POD-ul este prosumator, cu Energy Dashboard support)
 - Compensare ANRE Prosumator (din separarea plăților pe canal)
+- Sold Factură (Plătit/Neplătit/Credit — migrat din binary_sensor.py)
 
-Notă: Senzorii Da/Nu (SoldFactura, FacturaRestanta) au fost
-mutați în binary_sensor.py ca BinarySensorEntity.
-CitirePermisa a fost păstrat aici ca senzor string (Da/Nu).
+Notă: Citire Permisă este senzor string (Da/Nu) aici.
+Factură Restantă rămâne BinarySensorEntity în binary_sensor.py.
 """
 
 import logging
@@ -115,6 +115,8 @@ async def async_setup_entry(
                 IhidroAnomalieConsumSensor(coordinator, entry),
                 # Senzor citire permisă (Da/Nu)
                 IhidroCitirePermisaSensor(coordinator, entry),
+                # Senzor sold factură (Plătit/Neplătit/Credit)
+                IhidroSoldFacturaSensor(coordinator, entry),
             ]
         )
 
@@ -179,6 +181,118 @@ class IhidroBaseSensor(CoordinatorEntity, SensorEntity):
             "model": "Punct de Consum Electric",
             "entry_type": DeviceEntryType.SERVICE,
         }
+
+    # --- Metode comune pentru senzorul de energie extern ---
+
+    def _get_energy_sensor_id(self) -> Optional[str]:
+        """Returnează entity_id senzorului de energie extern configurat."""
+        energy_sensor = self.entry.options.get(CONF_ENERGY_SENSOR, "")
+        return energy_sensor if energy_sensor else None
+
+    def _get_external_energy_kwh(self) -> Optional[float]:
+        """Citește valoarea curentă din senzorul de energie extern (kWh)."""
+        entity_id = self._get_energy_sensor_id()
+        if not entity_id:
+            return None
+        state_obj = self.hass.states.get(entity_id)
+        if state_obj is None or state_obj.state in ("unavailable", "unknown", None):
+            return None
+        try:
+            value = float(state_obj.state)
+        except (ValueError, TypeError):
+            return None
+        unit = state_obj.attributes.get("unit_of_measurement", "")
+        if unit == "Wh":
+            value = value / 1000.0
+        return value
+
+
+class IhidroEnergySensorMixin:
+    """Mixin pentru senzorii care folosesc senzorul de energie extern.
+
+    Oferă live meter index tracking prin offset calibration:
+    - La fiecare update de coordinator (date API noi), stochează:
+      offset = last_known_meter_index - energy_sensor_kwh_la_acel_moment
+    - Între update-uri, calculează:
+      live_index = current_energy_kwh + offset
+
+    Astfel live_index crește 1:1 cu senzorul de energie între refresh-urile API.
+
+    Utilizare: clasele care moștenesc acest mixin trebuie să aibă și
+    IhidroBaseSensor în MRO (pentru acces la _data, entry, hass, etc.)
+    """
+
+    _energy_offset: Optional[float] = None
+    _energy_snapshot_kwh: Optional[float] = None
+    _last_api_index: Optional[float] = None
+
+    def _calibrate_energy_offset(self) -> None:
+        """Recalibrează offset-ul la primirea datelor noi de la API.
+
+        Apelat din _handle_coordinator_update() al fiecărui senzor.
+        """
+        energy_kwh = self._get_external_energy_kwh()  # type: ignore[attr-defined]
+        if energy_kwh is None:
+            return
+
+        active_meter = self._data.get("active_meter")  # type: ignore[attr-defined]
+        last_index, _ = get_meter_index_cascading(
+            self._data, register="1.8.0", active_meter=active_meter  # type: ignore[attr-defined]
+        )
+        if last_index is None or last_index <= 0:
+            return
+
+        self._energy_offset = round(last_index - energy_kwh, 3)
+        self._energy_snapshot_kwh = energy_kwh
+        self._last_api_index = last_index
+
+    def _compute_live_index(self) -> Optional[float]:
+        """Calculează indexul live al contorului folosind senzorul extern.
+
+        Între update-urile API:
+          live_index = current_energy_kwh + offset
+          = current_energy_kwh + (last_api_index - energy_kwh_at_calibration)
+          = last_api_index + (current_energy_kwh - energy_kwh_at_calibration)
+          = last_api_index + consum_real_de_la_ultima_citire_api
+
+        Când API-ul se actualizează, offset-ul se recalibrează automat.
+        """
+        if self._energy_offset is None:
+            # Prima calibrare (nu avem offset încă)
+            self._calibrate_energy_offset()
+
+        if self._energy_offset is None:
+            return None
+
+        current_kwh = self._get_external_energy_kwh()  # type: ignore[attr-defined]
+        if current_kwh is None:
+            return None
+
+        live_index = current_kwh + self._energy_offset
+        return round(live_index, 2)
+
+    def _energy_extra_attrs(self) -> Dict[str, Any]:
+        """Returnează atributele extra legate de senzorul de energie."""
+        attrs: Dict[str, Any] = {}
+        energy_id = self._get_energy_sensor_id()  # type: ignore[attr-defined]
+        if energy_id:
+            attrs["energy_sensor"] = energy_id
+            attrs["energy_offset"] = self._energy_offset
+            attrs["energy_snapshot_kwh"] = self._energy_snapshot_kwh
+            attrs["api_index_at_calibration"] = self._last_api_index
+            live = self._compute_live_index()
+            if live is not None:
+                attrs["live_index"] = live
+        return attrs
+
+    def _handle_coordinator_update(self) -> None:
+        """Override CoordinatorEntity._handle_coordinator_update.
+
+        Recalibrează offset-ul la fiecare update de la coordinator, apoi
+        apelează metoda originală pentru a actualiza starea în HA.
+        """
+        self._calibrate_energy_offset()
+        super()._handle_coordinator_update()  # type: ignore[misc]
 
 
 # =============================================================================
@@ -272,11 +386,14 @@ class IhidroLastBillSensor(IhidroBaseSensor):
 # =============================================================================
 
 
-class IhidroMeterReadingSensor(IhidroBaseSensor):
+class IhidroMeterReadingSensor(IhidroEnergySensorMixin, IhidroBaseSensor):
     """Senzor pentru index curent contor.
 
     Setează SensorDeviceClass.ENERGY pentru compatibilitate cu Energy Dashboard.
     Folosește cascading fallback: meter_read_history → previous_meter_read → meter_counter_series.
+
+    Dacă un senzor de energie extern este configurat, oferă live index tracking
+    între refresh-urile API (offset calibration via IhidroEnergySensorMixin).
     """
 
     _attr_device_class = SensorDeviceClass.ENERGY
@@ -291,7 +408,12 @@ class IhidroMeterReadingSensor(IhidroBaseSensor):
 
     @property
     def native_value(self) -> Optional[float]:
-        # Fallback: cascading pe 3 surse (meter_details este de obicei gol)
+        # Sursă preferată: live index din senzorul extern (real-time)
+        live = self._compute_live_index()
+        if live is not None:
+            return live
+
+        # Fallback: cascading pe 3 surse API
         active_meter = self._data.get("active_meter")
         value, source = get_meter_index_cascading(
             self._data, register="1.8.0", active_meter=active_meter
@@ -305,18 +427,21 @@ class IhidroMeterReadingSensor(IhidroBaseSensor):
             ATTR_ACCOUNT_NUMBER: self._an,
         }
 
-        # Sursa datelor
+        # Sursa datelor API
         active_meter = self._data.get("active_meter")
-        _, source = get_meter_index_cascading(
+        api_value, source = get_meter_index_cascading(
             self._data, register="1.8.0", active_meter=active_meter
         )
         attrs["data_source"] = source
         attrs["active_meter"] = active_meter
+        attrs["api_index"] = api_value
 
         # Info din meter_read_history
+        # IMPORTANT: Lista este sortată ASCENDENT (cel mai vechi primul).
+        # Folosim [-1] pentru cea mai recentă citire.
         history_entries = get_data_list(self._data.get("meter_read_history"))
         if history_entries:
-            entry = history_entries[0]
+            entry = history_entries[-1]
             attrs[ATTR_METER_NUMBER] = entry.get("CounterSeries")
             attrs[ATTR_LAST_READING] = entry.get("Index")
             attrs[ATTR_LAST_READING_DATE] = format_date_ro(entry.get("Date"))
@@ -331,16 +456,25 @@ class IhidroMeterReadingSensor(IhidroBaseSensor):
                 window.get("NextMonthClosingDate") or window.get("ClosingDate")
             )
 
+        # Info senzor extern de energie (dacă configurat)
+        attrs.update(self._energy_extra_attrs())
+
         return attrs
 
 
 # =============================================================================
-# Senzor Consum Lunar — cu Energy Dashboard support
+# Senzor Consum Lunar — cu Energy Dashboard support + live tracking
 # =============================================================================
 
 
-class IhidroMonthlyConsumptionSensor(IhidroBaseSensor):
-    """Senzor pentru consum lunar."""
+class IhidroMonthlyConsumptionSensor(IhidroEnergySensorMixin, IhidroBaseSensor):
+    """Senzor pentru consum lunar.
+
+    Surse de date (în ordinea priorității):
+    1. getTentativeData.SoFar (pentru contoare AMI)
+    2. Senzor extern: live_index - period_start_index (real-time)
+    3. Fallback: diferența ultimelor 2 indexuri din meter_read_history
+    """
 
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_state_class = SensorStateClass.TOTAL
@@ -352,19 +486,46 @@ class IhidroMonthlyConsumptionSensor(IhidroBaseSensor):
         self._attr_name = "Consum Lunar"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_monthly_consumption"
 
+    def _get_period_start_index(self) -> Optional[float]:
+        """Returnează indexul de la începutul perioadei curente.
+
+        Citirile sunt sortate ASCENDENT: readings[-2] = start perioadă curentă.
+        """
+        history = get_data_list(self._data.get("meter_read_history"))
+        if not history:
+            return None
+        readings = []
+        for entry in history:
+            reg = entry.get("Registers", "") or entry.get("Register", "")
+            if reg == "1.8.0" or (reg and "_P" not in reg.upper()):
+                idx = safe_float(entry.get("Index") or entry.get("MeterReading"))
+                if idx > 0:
+                    readings.append(idx)
+        if len(readings) >= 2:
+            return readings[-2]
+        return None
+
     @property
     def native_value(self) -> Optional[float]:
-        # Sursa principală: getTentativeData din daily_usage (SoFar = consum ciclu curent)
+        # Sursa 1: getTentativeData din daily_usage (SoFar = consum ciclu curent)
         tentative = get_tentative_data(self._data.get("daily_usage"))
         if tentative:
             so_far = safe_float(tentative.get("SoFar"))
             if so_far > 0:
                 return so_far
 
-        # Fallback: derivă din diferența ultimelor 2 indexuri din meter_read_history
+        # Sursa 2: senzor extern → live_index - period_start_index
+        live_index = self._compute_live_index()
+        if live_index is not None:
+            period_start = self._get_period_start_index()
+            if period_start is not None:
+                consumption = live_index - period_start
+                if consumption > 0:
+                    return round(consumption, 2)
+
+        # Fallback 3: derivă din diferența ultimelor 2 indexuri din meter_read_history
         history = get_data_list(self._data.get("meter_read_history"))
-        if len(history) >= 2:
-            # Filtrăm pe registrul standard 1.8.0
+        if history and len(history) >= 2:
             readings = []
             for entry in history:
                 reg = entry.get("Registers", "") or entry.get("Register", "")
@@ -373,7 +534,8 @@ class IhidroMonthlyConsumptionSensor(IhidroBaseSensor):
                     if idx > 0:
                         readings.append(idx)
             if len(readings) >= 2:
-                consumption = readings[0] - readings[1]
+                # Ascendent: [-1] = recent, [-2] = precedent
+                consumption = readings[-1] - readings[-2]
                 if consumption > 0:
                     return round(consumption, 2)
 
@@ -399,11 +561,11 @@ class IhidroMonthlyConsumptionSensor(IhidroBaseSensor):
             attrs["highest_kwh"] = format_number_ro(highest) + " kWh" if highest > 0 else None
             attrs["data_source"] = "daily_usage_tentative"
         else:
-            # Info derivată din meter_read_history
+            # Info derivată din meter_read_history (cele mai recente primele)
             history = get_data_list(self._data.get("meter_read_history"))
             if history:
                 recent = []
-                for item in history[:6]:
+                for item in reversed(history):
                     reg = item.get("Registers", "") or item.get("Register", "")
                     if reg == "1.8.0" or (reg and "_P" not in reg.upper()):
                         idx = safe_float(item.get("Index") or item.get("MeterReading"))
@@ -412,8 +574,13 @@ class IhidroMonthlyConsumptionSensor(IhidroBaseSensor):
                             "date": format_date_ro(item.get("Date")),
                             "register": reg,
                         })
-                attrs["recent_readings"] = recent[:4]
+                        if len(recent) >= 4:
+                            break
+                attrs["recent_readings"] = recent
                 attrs["data_source"] = "meter_read_history_delta"
+
+        # Info senzor extern de energie (dacă configurat)
+        attrs.update(self._energy_extra_attrs())
 
         return attrs
 
@@ -611,8 +778,9 @@ class IhidroConsumAnualSensor(IhidroBaseSensor):
                     readings.append(idx)
 
         if len(readings) >= 2:
-            # Lista e ordonată cronologic descrescător (cel mai recent primul)
-            consumption = readings[0] - readings[-1]
+            # Lista e ordonată cronologic ASCENDENT (cel mai vechi primul)
+            # readings[-1] = cel mai recent, readings[0] = cel mai vechi
+            consumption = readings[-1] - readings[0]
             return round(consumption, 2) if consumption > 0 else None
 
         return None
@@ -629,7 +797,8 @@ class IhidroConsumAnualSensor(IhidroBaseSensor):
                     if idx > 0:
                         readings.append(idx)
 
-        total = (readings[0] - readings[-1]) if len(readings) >= 2 else 0.0
+        # Lista ascendentă: [-1] = recent, [0] = vechi
+        total = (readings[-1] - readings[0]) if len(readings) >= 2 else 0.0
         attrs: Dict[str, Any] = {
             ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
             "readings_count": len(readings),
@@ -686,8 +855,9 @@ class IhidroIndexAnualSensor(IhidroBaseSensor):
         }
         if history_entries:
             # Ultimele 3 citiri (doar registrul standard)
+            # IMPORTANT: Lista e ASCENDENTĂ — iterăm reversed pentru cele mai recente
             history = []
-            for item in history_entries:
+            for item in reversed(history_entries):
                 register = item.get("Registers", "") or item.get("Register", "")
                 if register == "1.8.0" or (register and not register.endswith("_P")):
                     history.append(
@@ -917,15 +1087,17 @@ class IhidroCompensareANRESensor(IhidroBaseSensor):
 
 
 # =============================================================================
-# Senzor Consum Zilnic — cu Energy Dashboard support (Phase M)
+# Senzor Consum Zilnic — cu Energy Dashboard support + energy sensor fallback
 # =============================================================================
 
 
-class IhidroDailyConsumptionSensor(IhidroBaseSensor):
-    """Senzor pentru consumul zilnic (GetUsageGeneration cu Mode=D).
+class IhidroDailyConsumptionSensor(IhidroEnergySensorMixin, IhidroBaseSensor):
+    """Senzor pentru consumul zilnic.
 
-    Oferă granularitate zilnică — mult mai utilă pentru Energy Dashboard
-    decât consumul lunar. Stochează ultimele zile în atribute.
+    Surse de date (în ordinea priorității):
+    1. getTentativeData.SoFar / Average (pentru contoare AMI)
+    2. Senzor extern: consumul lunar / zile în perioadă (medie zilnică live)
+    3. Fallback: consum lunar din meter_read_history / 30
     """
 
     _attr_device_class = SensorDeviceClass.ENERGY
@@ -938,17 +1110,78 @@ class IhidroDailyConsumptionSensor(IhidroBaseSensor):
         self._attr_name = "Consum Zilnic"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_daily_consumption"
 
+    def _get_period_info(self) -> Optional[Dict[str, Any]]:
+        """Calculează informații despre perioada curentă.
+
+        Returnează dict cu period_start_index, period_start_date, days_elapsed.
+        Folosit pentru a deriva consumul zilnic din senzorul extern.
+        """
+        history = get_data_list(self._data.get("meter_read_history"))
+        if not history or len(history) < 2:
+            return None
+
+        # Filtrăm pe 1.8.0, lista e ASCENDENTĂ
+        filtered = []
+        for entry in history:
+            reg = entry.get("Registers", "") or entry.get("Register", "")
+            if reg == "1.8.0" or (reg and "_P" not in reg.upper()):
+                idx = safe_float(entry.get("Index") or entry.get("MeterReading"))
+                dt = parse_date(entry.get("Date"))
+                if idx > 0 and dt:
+                    filtered.append({"index": idx, "date": dt})
+
+        if len(filtered) < 2:
+            return None
+
+        # [-1] = cel mai recent, [-2] = start perioadă curentă
+        period_start = filtered[-2]
+        days_elapsed = (datetime.now() - period_start["date"]).days
+        if days_elapsed <= 0:
+            days_elapsed = 1  # evităm div by zero
+
+        return {
+            "period_start_index": period_start["index"],
+            "period_start_date": period_start["date"],
+            "days_elapsed": days_elapsed,
+        }
+
     @property
     def native_value(self) -> Optional[float]:
+        # Sursa 1: tentative data (AMI)
         tentative = get_tentative_data(self._data.get("daily_usage"))
         if tentative:
             so_far = safe_float(tentative.get("SoFar"))
             if so_far > 0:
                 return so_far
-            # Fallback pe Average dacă SoFar este 0
             average = safe_float(tentative.get("Average"))
             if average > 0:
                 return average
+
+        # Sursa 2: senzor extern → (live_index - period_start) / zile
+        live_index = self._compute_live_index()
+        if live_index is not None:
+            period = self._get_period_info()
+            if period:
+                monthly_consumption = live_index - period["period_start_index"]
+                if monthly_consumption > 0:
+                    daily = monthly_consumption / period["days_elapsed"]
+                    return round(daily, 2)
+
+        # Fallback 3: consum lunar din meter_read_history / 30
+        history = get_data_list(self._data.get("meter_read_history"))
+        if history and len(history) >= 2:
+            readings = []
+            for entry in history:
+                reg = entry.get("Registers", "") or entry.get("Register", "")
+                if reg == "1.8.0" or (reg and "_P" not in reg.upper()):
+                    idx = safe_float(entry.get("Index") or entry.get("MeterReading"))
+                    if idx > 0:
+                        readings.append(idx)
+            if len(readings) >= 2:
+                monthly = readings[-1] - readings[-2]
+                if monthly > 0:
+                    return round(monthly / 30, 2)
+
         return None
 
     @property
@@ -957,6 +1190,7 @@ class IhidroDailyConsumptionSensor(IhidroBaseSensor):
             ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
             ATTR_ACCOUNT_NUMBER: self._an,
         }
+
         tentative = get_tentative_data(self._data.get("daily_usage"))
         if tentative:
             so_far = safe_float(tentative.get("SoFar"))
@@ -968,6 +1202,25 @@ class IhidroDailyConsumptionSensor(IhidroBaseSensor):
             attrs["average_kwh"] = format_number_ro(average) + " kWh" if average > 0 else None
             attrs["highest_kwh"] = format_number_ro(highest) + " kWh" if highest > 0 else None
             attrs["usage_cycle"] = tentative.get("UsageCycle")
+            attrs["data_source"] = "daily_usage_tentative"
+        else:
+            # Determinăm sursa reală folosită
+            live_index = self._compute_live_index()
+            period = self._get_period_info()
+            if live_index is not None and period:
+                monthly = live_index - period["period_start_index"]
+                if monthly > 0:
+                    attrs["data_source"] = "energy_sensor_daily_avg"
+                    attrs["consum_lunar_live"] = format_number_ro(monthly) + " kWh"
+                    attrs["zile_in_perioada"] = period["days_elapsed"]
+                else:
+                    attrs["data_source"] = "meter_read_history_avg"
+            else:
+                attrs["data_source"] = "meter_read_history_avg"
+
+        # Info senzor extern de energie (dacă configurat)
+        attrs.update(self._energy_extra_attrs())
+
         return attrs
 
 
@@ -1471,13 +1724,13 @@ class IhidroEstimareFacturaSensor(IhidroBaseSensor):
     def _estimate_from_external_sensor(
         self, bills: list
     ) -> Optional[Dict[str, Any]]:
-        """Calculează estimarea folosind senzorul de energie extern.
+        """Calculează estimarea folosind senzorul de energie extern + offset calibration.
 
         Strategia:
-        1. Citim kWh curent de la senzorul extern
-        2. Obținem indexul contorului la ultima factură (din bill_history)
-        3. Calculăm delta kWh de la ultima factură
-        4. Extrapolăm la o lună completă
+        1. Calculăm live_index prin offset: energy_kwh + (last_api_index - energy_kwh_at_calibration)
+        2. Obținem indexul contorului la ultima factură (din meter_read_history)
+        3. delta_kwh = live_index - index_la_ultima_factura (consum REAL de la ultima factură)
+        4. Extrapolăm la o lună completă: daily = delta / days_since_bill, monthly = daily × 30
         5. Aplicăm tariful real curent
 
         Returnează un dict cu estimarea și metadata, sau None dacă nu se poate calcula.
@@ -1496,68 +1749,60 @@ class IhidroEstimareFacturaSensor(IhidroBaseSensor):
         if days_since_bill <= 0:
             return None
 
-        # Obținem indexul contorului la ultima factură
-        # Din meter_read_history
-        last_meter_index = None
+        # Obținem indexul contorului la ultima factură din meter_read_history
+        # Căutăm citirea cu data cea mai apropiată de data facturii
+        last_bill_index = None
         readings = get_data_list(self._data.get("meter_read_history"))
         if readings:
-            for reading in readings:
+            # Lista e ASCENDENTĂ — iterăm reversed pentru a găsi rapid
+            for reading in reversed(readings):
+                reg = reading.get("Registers", "") or reading.get("Register", "")
+                if reg != "1.8.0" and (not reg or "_P" in reg.upper()):
+                    continue
                 date_str = reading.get("Date")
                 if date_str:
                     dt = parse_date(date_str)
-                    if dt and abs((dt - last_bill_date).days) <= 5:
-                        last_meter_index = safe_float(reading.get("Index"))
-                        if last_meter_index > 0:
+                    if dt and abs((dt - last_bill_date).days) <= 10:
+                        idx = safe_float(reading.get("Index"))
+                        if idx > 0:
+                            last_bill_index = idx
                             break
-                        last_meter_index = None
 
-        # Fallback: folosim ultimul index cunoscut din cascading
-        if last_meter_index is None:
-            value, _src = get_meter_index_cascading(self._data)
-            if value is not None and value > 0:
-                last_meter_index = value
+        # Fallback: penultima citire (readings[-2]) — start perioadă curentă
+        if last_bill_index is None and readings:
+            filtered = []
+            for r in readings:
+                reg = r.get("Registers", "") or r.get("Register", "")
+                if reg == "1.8.0" or (reg and "_P" not in reg.upper()):
+                    idx = safe_float(r.get("Index") or r.get("MeterReading"))
+                    if idx > 0:
+                        filtered.append(idx)
+            if len(filtered) >= 2:
+                last_bill_index = filtered[-2]
 
-        if last_meter_index is None or last_meter_index <= 0:
+        if last_bill_index is None or last_bill_index <= 0:
             return None
 
-        # Offset calibration: senzor_extern_value ↔ meter_index
-        # offset = last_meter_index - energy_sensor_at_bill_date
-        # Cum nu știm energy_sensor la bill_date, folosim delta directă
-        # Consumul de la senzorul extern (delta kWh de la ultima factură)
-        # Abordare: consum_zilnic × 30 zile
-        # Notă: senzorul extern este un contor total_increasing, dar noi nu
-        # avem snapshot-ul la data facturii. Folosim consumul mediu zilnic
-        # bazat pe indexul contorului.
-
-        # Indexul curent al contorului (cascading fallback)
-        current_meter_index = None
-        cur_value, _cur_src = get_meter_index_cascading(self._data)
-        if cur_value is not None and cur_value > 0:
-            current_meter_index = cur_value
-
-        if current_meter_index is None or current_meter_index <= 0:
+        # Calculăm live_index prin offset calibration
+        # offset = last_api_index - current_kwh → live = current_kwh + offset
+        active_meter = self._data.get("active_meter")
+        last_api_index, _ = get_meter_index_cascading(
+            self._data, register="1.8.0", active_meter=active_meter
+        )
+        if last_api_index is None or last_api_index <= 0:
             return None
 
-        # Delta kWh de la ultima factură (din indexul contorului)
-        delta_kwh = current_meter_index - last_meter_index
+        offset = last_api_index - current_kwh
+        live_index = current_kwh + offset  # = last_api_index + (current_kwh - current_kwh) la calibrare
+
+        # Delta kWh de la ultima factură (folosind live_index real-time)
+        delta_kwh = live_index - last_bill_index
         if delta_kwh < 0:
             # Index reset sau eroare
             return None
 
-        # Estimăm consumul zilnic de la senzorul extern
-        # Preferăm senzorul extern pentru precizie intra-zi
-        # Deoarece indexul contorului se actualizează lunar, folosim
-        # senzorul extern ca sursă de delta kWh mai precisă
-        # Calculul: consum_zilnic = delta_kwh / zile_trecute
-        daily_consumption = delta_kwh / days_since_bill if days_since_bill > 0 else 0
-
-        # Ajustăm cu senzorul extern pentru precizia zilei curente
-        # Senzorul extern oferă date real-time vs indexul lunar
-        external_kwh = current_kwh
-        if external_kwh is not None and external_kwh > 0:
-            # Folosim senzorul extern ca referință suplimentară
-            # pentru a valida/corecta estimarea
-            pass
+        # Consumul zilnic real de la ultima factură
+        daily_consumption = delta_kwh / days_since_bill
 
         # Extrapolăm la 30 de zile (o lună standard)
         estimated_monthly_consumption = daily_consumption * 30
@@ -1578,9 +1823,11 @@ class IhidroEstimareFacturaSensor(IhidroBaseSensor):
             "estimated_monthly_kwh": round(estimated_monthly_consumption, 1),
             "days_since_bill": days_since_bill,
             "delta_kwh": round(delta_kwh, 1),
+            "live_index": round(live_index, 2),
+            "last_bill_index": round(last_bill_index, 2),
             "current_tariff": current_tariff,
             "external_sensor": self._get_energy_sensor_id(),
-            "external_sensor_kwh": round(external_kwh, 2) if external_kwh else None,
+            "external_sensor_kwh": round(current_kwh, 2),
         }
 
     @property
@@ -1945,4 +2192,75 @@ class IhidroCitirePermisaSensor(IhidroBaseSensor):
             attrs["window_end"] = format_date_ro(
                 window.get("NextMonthClosingDate") or window.get("ClosingDate")
             )
+        return attrs
+
+
+# =============================================================================
+# Sold Factură (Plătit / Neplătit / Credit) — migrat din binary_sensor.py
+# =============================================================================
+
+
+class IhidroSoldFacturaSensor(IhidroBaseSensor):
+    """Senzor text: Starea plății facturii curente.
+
+    Afișează starea clară în română:
+    - "Plătit" — sold = 0
+    - "Neplătit" — sold > 0
+    - "Credit" — sold < 0 (supraplatit)
+
+    Migrat din IhidroSoldFacturaBinarySensor (care afișa doar "On"/"Off").
+    Păstrează același unique_id pentru a nu pierde istoricul.
+    """
+
+    _attr_icon = "mdi:check-decagram"
+
+    def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_name = "Sold Factură"
+        self._attr_unique_id = f"{entry.entry_id}_{self._uan}_sold_factura"
+
+    @property
+    def native_value(self) -> Optional[str]:
+        """Returnează 'Plătit', 'Neplătit' sau 'Credit'."""
+        bill = get_current_bill_data(self._data.get("current_bill"))
+        if not bill:
+            return None
+        amount = safe_float(bill.get("rembalance") or bill.get("billamount"))
+        if amount < 0:
+            return "Credit"
+        elif amount == 0:
+            return "Plătit"
+        else:
+            return "Neplătit"
+
+    @property
+    def icon(self) -> str:
+        """Pictogramă dinamică în funcție de stare."""
+        status = self.native_value
+        if status == "Plătit":
+            return "mdi:check-decagram"
+        elif status == "Credit":
+            return "mdi:cash-plus"
+        elif status == "Neplătit":
+            return "mdi:alert-circle-outline"
+        return "mdi:help-circle"
+
+    @property
+    def extra_state_attributes(self) -> Dict[str, Any]:
+        bill = get_current_bill_data(self._data.get("current_bill"))
+        attrs: Dict[str, Any] = {
+            ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
+        }
+        if bill:
+            raw_amount = bill.get("rembalance") or bill.get("billamount")
+            amount = safe_float(raw_amount)
+            attrs[ATTR_AMOUNT] = raw_amount
+            attrs["amount_formatat"] = format_ron(amount)
+            if amount < 0:
+                attrs["status_detaliat"] = "Credit"
+            elif amount == 0:
+                attrs["status_detaliat"] = "Plătit"
+            else:
+                attrs["status_detaliat"] = "Neplătit"
+            attrs[ATTR_DUE_DATE] = format_date_ro(bill.get("duedate"))
         return attrs

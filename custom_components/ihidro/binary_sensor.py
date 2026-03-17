@@ -1,10 +1,10 @@
 """Senzori binari pentru integrarea iHidro.
 
 Convertește senzorii Da/Nu din sensor.py în proper BinarySensorEntity:
-- Sold Factură — factură plătită (on = plătit, off = neplătit)
 - Factură Restantă — factură restantă (on = restant, off = nu)
 
-Notă: Citire Permisă a fost mutat în sensor.py ca senzor string (Da/Nu).
+Notă: Sold Factură a fost migrat în sensor.py ca senzor text (Plătit/Neplătit/Credit).
+Citire Permisă a fost mutat în sensor.py ca senzor string (Da/Nu).
 """
 
 import logging
@@ -56,7 +56,6 @@ async def async_setup_entry(
     for uan, coordinator in coordinators.items():
         entities.extend(
             [
-                IhidroSoldFacturaBinarySensor(coordinator, entry),
                 IhidroFacturaRestantaBinarySensor(coordinator, entry),
             ]
         )
@@ -102,54 +101,6 @@ class IhidroBaseBinarySensor(CoordinatorEntity, BinarySensorEntity):
             "model": "Punct de Consum Electric",
             "entry_type": DeviceEntryType.SERVICE,
         }
-
-
-# =============================================================================
-# Sold Factură (plătit / neplătit)
-# =============================================================================
-
-
-class IhidroSoldFacturaBinarySensor(IhidroBaseBinarySensor):
-    """Senzor binar: Factură plătită (on = plătit, off = neplătit/credit).
-
-    on (is_on=True): Sold = 0 sau negativ (plătit/credit)
-    off (is_on=False): Sold > 0 (neplătit)
-    """
-
-    _attr_icon = "mdi:check-decagram"
-
-    def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator, entry)
-        self._attr_name = "Sold Factură"
-        self._attr_unique_id = f"{entry.entry_id}_{self._uan}_sold_factura"
-
-    @property
-    def is_on(self) -> Optional[bool]:
-        """True = factură plătită (sold ≤ 0), False = neplătit (sold > 0)."""
-        bill = get_current_bill_data(self._data.get("current_bill"))
-        if not bill:
-            return None
-        amount = safe_float(bill.get("rembalance") or bill.get("billamount"))
-        return amount <= 0
-
-    @property
-    def extra_state_attributes(self) -> Dict[str, Any]:
-        bill = get_current_bill_data(self._data.get("current_bill"))
-        attrs: Dict[str, Any] = {
-            ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
-        }
-        if bill:
-            raw_amount = bill.get("rembalance") or bill.get("billamount")
-            amount = safe_float(raw_amount)
-            attrs[ATTR_AMOUNT] = raw_amount
-            attrs["amount_formatat"] = format_ron(amount)
-            if amount < 0:
-                attrs["status_detaliat"] = "Credit"
-            elif amount == 0:
-                attrs["status_detaliat"] = "Plătit"
-            else:
-                attrs["status_detaliat"] = "Neplătit"
-        return attrs
 
 
 # =============================================================================

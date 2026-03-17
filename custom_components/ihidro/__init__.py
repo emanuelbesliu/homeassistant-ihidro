@@ -19,6 +19,7 @@ from typing import Any, Dict, List
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.typing import ConfigType
@@ -332,6 +333,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     runtime_data = IhidroRuntimeData(api=api, coordinators=coordinators)
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = runtime_data
+
+    # Migrăm entitățile care au schimbat platforma (binary_sensor → sensor)
+    # Sold Factură a fost mutat din binary_sensor în sensor.
+    # Citire Permisă a fost mutat din binary_sensor în sensor (v2.0.8).
+    ent_reg = er.async_get(hass)
+    for uan in coordinators:
+        _migrations = [
+            (f"{entry.entry_id}_{uan}_sold_factura", "sensor"),
+            (f"{entry.entry_id}_{uan}_citire_permisa", "sensor"),
+        ]
+        for unique_id, new_platform in _migrations:
+            old_entity = ent_reg.async_get_entity_id(
+                "binary_sensor", DOMAIN, unique_id
+            )
+            if old_entity is not None:
+                _LOGGER.info(
+                    "Migrăm entitatea %s din binary_sensor → %s",
+                    old_entity,
+                    new_platform,
+                )
+                ent_reg.async_remove(old_entity)
 
     # Înregistrăm platformele (sensor, binary_sensor, button, number, switch)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
