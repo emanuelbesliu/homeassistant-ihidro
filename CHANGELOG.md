@@ -5,6 +5,13 @@ All notable changes to the iHidro Romania Home Assistant Integration will be doc
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.9](https://github.com/emanuelbesliu/homeassistant-ihidro/compare/v2.0.8...v2.0.9) (2026-03-17)
+
+
+### Bug Fixes
+
+* correct ascending sort bugs, add energy sensor live tracking, and migrate Sold Factură to sensor platform ([36ad345](https://github.com/emanuelbesliu/homeassistant-ihidro/commit/36ad345963e9aa466ee26777afaf97a249798559))
+
 ## [2.0.8](https://github.com/emanuelbesliu/homeassistant-ihidro/compare/v2.0.7...v2.0.8) (2026-03-17)
 
 
