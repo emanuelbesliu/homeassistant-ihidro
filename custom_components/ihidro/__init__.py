@@ -106,7 +106,16 @@ async def _async_register_lovelace_card(hass: HomeAssistant) -> None:
         return
 
     # Înregistrăm calea statică pentru a servi fișierul JS
-    hass.http.register_static_path(IHIDRO_CARD_URL, card_path, cache_headers=False)
+    # HA 2024.7+ a înlocuit register_static_path cu async_register_static_paths
+    try:
+        from homeassistant.components.http import StaticPathConfig
+
+        hass.http.async_register_static_paths(
+            [StaticPathConfig(IHIDRO_CARD_URL, card_path, False)]
+        )
+    except (ImportError, AttributeError):
+        # Fallback pentru versiuni mai vechi de HA
+        hass.http.register_static_path(IHIDRO_CARD_URL, card_path, cache_headers=False)
     _LOGGER.debug("Card Lovelace înregistrat la %s", IHIDRO_CARD_URL)
 
     # Adăugăm resursa la frontend (auto-include în Lovelace fără intervenție manuală)
