@@ -19,6 +19,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceEntryType
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
@@ -57,7 +58,7 @@ async def async_setup_entry(
     _LOGGER.info("Au fost create %d entități switch iHidro", len(entities))
 
 
-class IhidroAutoSubmitSwitch(CoordinatorEntity, SwitchEntity):
+class IhidroAutoSubmitSwitch(CoordinatorEntity, RestoreEntity, SwitchEntity):
     """Switch pentru autotransmiterea indexului contorului.
 
     Când este activat:
@@ -70,6 +71,7 @@ class IhidroAutoSubmitSwitch(CoordinatorEntity, SwitchEntity):
        c. Apelează GetMeterValue pentru pre-validare
        d. Trimite indexul cu SubmitSelfMeterRead
 
+    Folosește RestoreEntity pentru a persista starea ON/OFF între restarturile HA.
     Switch-ul este indisponibil (greyed out) dacă:
     - Nu este configurat un senzor de energie extern
     """
@@ -99,6 +101,20 @@ class IhidroAutoSubmitSwitch(CoordinatorEntity, SwitchEntity):
         self._calibration_offset: Optional[float] = None
         # Timestamp ultima calibrare
         self._calibration_time: Optional[str] = None
+
+    async def async_added_to_hass(self) -> None:
+        """Restaurează starea switch-ului la adăugarea în HA."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            self._is_on = last_state.state == "on"
+            if self._is_on:
+                _LOGGER.debug(
+                    "Autotransmitere restaurată ON pentru POD %s, recalibrăm offset",
+                    self._uan,
+                )
+                # Recalibrăm offset-ul (datele din senzorul extern s-au schimbat)
+                await self._calibrate_offset()
 
     @property
     def device_info(self) -> Dict[str, Any]:

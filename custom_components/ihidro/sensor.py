@@ -117,6 +117,8 @@ async def async_setup_entry(
                 IhidroCitirePermisaSensor(coordinator, entry),
                 # Senzor sold factură (Plătit/Neplătit/Credit)
                 IhidroSoldFacturaSensor(coordinator, entry),
+                # Senzor factură restantă (Da/Nu) — migrat din binary_sensor.py
+                IhidroFacturaRestantaSensor(coordinator, entry),
             ]
         )
 
@@ -1413,6 +1415,10 @@ class IhidroDaysUntilDueSensor(IhidroBaseSensor):
     - trigger: state < 3 → trimite notificare urgentă
     - trigger: state == 0 → factură scadentă azi
     - Valori negative = factură restantă de N zile
+
+    Dacă factura este plătită (rembalance <= 0), senzorul returnează None
+    (unavailable) — nu mai are sens să numeri zile după ce ai achitat.
+    Folosește date() (nu datetime.now()) pentru calcul precis pe zile.
     """
 
     _attr_icon = "mdi:calendar-alert"
@@ -1423,17 +1429,42 @@ class IhidroDaysUntilDueSensor(IhidroBaseSensor):
         self._attr_name = "Zile Până la Scadență"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_days_until_due"
 
+    def _is_bill_paid(self) -> bool:
+        """Verifică dacă factura curentă este plătită (sold <= 0)."""
+        bill = get_current_bill_data(self._data.get("current_bill"))
+        if not bill:
+            return False
+        amount = safe_float(bill.get("rembalance") or bill.get("billamount"))
+        return amount <= 0
+
     @property
     def native_value(self) -> Optional[int]:
+        # Factura plătită sau credit → nimic de numărat
+        if self._is_bill_paid():
+            return None
         bill = get_current_bill_data(self._data.get("current_bill"))
         if bill:
             due_date_str = bill.get("duedate")
             if due_date_str:
                 due_dt = parse_date(due_date_str)
                 if due_dt:
-                    delta = due_dt - datetime.now()
+                    # Folosim date() pentru comparație precisă pe zile
+                    # (fără influența orei curente)
+                    delta = due_dt.date() - datetime.now().date()
                     return delta.days
         return None
+
+    @property
+    def icon(self) -> str:
+        """Pictogramă dinamică în funcție de urgență."""
+        days = self.native_value
+        if days is None:
+            return "mdi:calendar-check"  # plătit / fără factură
+        if days < 0:
+            return "mdi:calendar-alert"  # restantă
+        if days <= 3:
+            return "mdi:calendar-clock"  # aproape de scadență
+        return "mdi:calendar-month"  # în termen
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
@@ -1447,16 +1478,19 @@ class IhidroDaysUntilDueSensor(IhidroBaseSensor):
             attrs[ATTR_AMOUNT] = bill.get("rembalance") or bill.get("billamount")
             attrs["invoice_number"] = bill.get("invoicenumber")
             # Stare derivată
-            days = self.native_value
-            if days is not None:
-                if days < 0:
-                    attrs["status_plata"] = f"Restantă de {abs(days)} zile"
-                elif days == 0:
-                    attrs["status_plata"] = "Scadentă azi"
-                elif days <= 3:
-                    attrs["status_plata"] = "Aproape de scadență"
-                else:
-                    attrs["status_plata"] = "În termen"
+            if self._is_bill_paid():
+                attrs["status_plata"] = "Plătit"
+            else:
+                days = self.native_value
+                if days is not None:
+                    if days < 0:
+                        attrs["status_plata"] = f"Restantă de {abs(days)} zile"
+                    elif days == 0:
+                        attrs["status_plata"] = "Scadentă azi"
+                    elif days <= 3:
+                        attrs["status_plata"] = "Aproape de scadență"
+                    else:
+                        attrs["status_plata"] = "În termen"
         return attrs
 
 
@@ -2334,4 +2368,82 @@ class IhidroSoldFacturaSensor(IhidroBaseSensor):
             else:
                 attrs["status_detaliat"] = "Neplătit"
             attrs[ATTR_DUE_DATE] = format_date_ro(bill.get("duedate"))
+        return attrs
+
+
+# =============================================================================
+# Factură Restantă (Da / Nu) — migrat din binary_sensor.py
+# =============================================================================
+
+
+class IhidroFacturaRestantaSensor(IhidroBaseSensor):
+    """Senzor text: Factură restantă (Da/Nu).
+
+    Afișează "Da" dacă sold > 0 ȘI data scadenței a trecut, "Nu" altfel.
+    Migrat din IhidroFacturaRestantaBinarySensor (care afișa On/Off).
+    Păstrează același unique_id pentru a nu pierde istoricul.
+
+    Folosește date() pentru comparație precisă pe zile (fără influența orei).
+    """
+
+    _attr_icon = "mdi:alert-circle"
+
+    def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_name = "Factură Restantă"
+        self._attr_unique_id = f"{entry.entry_id}_{self._uan}_factura_restanta"
+
+    def _is_overdue(self) -> Optional[bool]:
+        """Verifică dacă factura este restantă."""
+        bill = get_current_bill_data(self._data.get("current_bill"))
+        if not bill:
+            return None
+
+        amount = safe_float(bill.get("rembalance") or bill.get("billamount"))
+        if amount <= 0:
+            return False
+
+        due_date_str = bill.get("duedate")
+        if not due_date_str:
+            return False
+
+        due_dt = parse_date(due_date_str)
+        if due_dt and datetime.now().date() > due_dt.date():
+            return True
+        return False
+
+    @property
+    def native_value(self) -> Optional[str]:
+        """Returnează 'Da' sau 'Nu'."""
+        overdue = self._is_overdue()
+        if overdue is None:
+            return None
+        return "Da" if overdue else "Nu"
+
+    @property
+    def icon(self) -> str:
+        """Pictogramă dinamică."""
+        if self.native_value == "Da":
+            return "mdi:alert-circle"
+        return "mdi:check-circle-outline"
+
+    @property
+    def extra_state_attributes(self) -> Dict[str, Any]:
+        bill = get_current_bill_data(self._data.get("current_bill"))
+        attrs: Dict[str, Any] = {
+            ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
+        }
+        if bill:
+            raw_amount = bill.get("rembalance") or bill.get("billamount")
+            amount = safe_float(raw_amount)
+            attrs[ATTR_AMOUNT] = raw_amount
+            attrs["amount_formatat"] = format_ron(amount)
+            attrs[ATTR_DUE_DATE] = format_date_ro(bill.get("duedate"))
+
+            # Zile restante (doar dacă e restantă)
+            due_dt = parse_date(bill.get("duedate"))
+            if due_dt and amount > 0:
+                delta_days = (datetime.now().date() - due_dt.date()).days
+                if delta_days > 0:
+                    attrs["zile_restante"] = delta_days
         return attrs

@@ -53,7 +53,6 @@ IHIDRO_CARD_NAME = "ihidro-card"
 
 PLATFORMS: List[Platform] = [
     Platform.SENSOR,
-    Platform.BINARY_SENSOR,
     Platform.BUTTON,
     Platform.NUMBER,
     Platform.SWITCH,
@@ -348,11 +347,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Migrăm entitățile care au schimbat platforma (binary_sensor → sensor)
     # Sold Factură a fost mutat din binary_sensor în sensor.
     # Citire Permisă a fost mutat din binary_sensor în sensor (v2.0.8).
+    # Factură Restantă a fost mutat din binary_sensor în sensor (v3.0.5).
     ent_reg = er.async_get(hass)
     for uan in coordinators:
         _migrations = [
             (f"{entry.entry_id}_{uan}_sold_factura", "sensor"),
             (f"{entry.entry_id}_{uan}_citire_permisa", "sensor"),
+            (f"{entry.entry_id}_{uan}_factura_restanta", "sensor"),
         ]
         for unique_id, new_platform in _migrations:
             old_entity = ent_reg.async_get_entity_id(
