@@ -110,7 +110,7 @@ async def _async_register_lovelace_card(hass: HomeAssistant) -> None:
     try:
         from homeassistant.components.http import StaticPathConfig
 
-        hass.http.async_register_static_paths(
+        await hass.http.async_register_static_paths(
             [StaticPathConfig(IHIDRO_CARD_URL, card_path, False)]
         )
     except (ImportError, AttributeError):
@@ -125,8 +125,9 @@ async def _async_register_lovelace_card(hass: HomeAssistant) -> None:
             ResourceStorageCollection,
         )
 
-        if "lovelace" in hass.data and "resources" in hass.data["lovelace"]:
-            resources: ResourceStorageCollection = hass.data["lovelace"]["resources"]
+        lovelace_data = hass.data.get("lovelace")
+        resources = getattr(lovelace_data, "resources", None) if lovelace_data else None
+        if isinstance(resources, ResourceStorageCollection):
             # Verificăm dacă resursa e deja adăugată
             existing = [
                 r
