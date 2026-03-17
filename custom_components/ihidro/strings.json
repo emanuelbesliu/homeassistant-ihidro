@@ -24,13 +24,26 @@
           "username": "Username (email or client code)",
           "password": "Password"
         }
+      },
+      "configure_options": {
+        "title": "Energy Sensor (Optional)",
+        "description": "Optionally select an external energy sensor (e.g. Shelly EM, smart plug) for more accurate bill estimation and automatic meter reading submission. You can skip this step and configure it later in the integration options.",
+        "data": {
+          "energy_sensor": "External energy sensor (optional)"
+        }
       }
     },
     "error": {
       "invalid_auth": "Invalid credentials. Please check your username and password.",
       "cannot_connect": "Cannot connect to iHidro server. Please check your internet connection.",
       "no_accounts": "No accounts (PODs) found for this user.",
-      "unknown": "Unknown error occurred. Check Home Assistant logs."
+      "unknown": "Unknown error occurred. Check Home Assistant logs.",
+      "energy_sensor_not_found": "The selected energy sensor was not found in Home Assistant.",
+      "energy_sensor_wrong_class": "The selected sensor is not an energy sensor (device_class must be 'energy').",
+      "energy_sensor_not_cumulative": "The selected sensor is not a cumulative energy meter (state_class must be 'total_increasing' or 'total'). Select a sensor that reports total consumed kWh, not instantaneous power.",
+      "energy_sensor_wrong_unit": "The selected sensor does not report energy in kWh or Wh. Sensors reporting W or kW (power) are not supported — select an energy (kWh) sensor instead.",
+      "energy_sensor_unavailable": "The selected energy sensor is currently unavailable. Make sure the device is online and try again.",
+      "energy_sensor_not_numeric": "The selected energy sensor has a non-numeric state. Make sure the sensor is working correctly."
     },
     "abort": {
       "already_configured": "This iHidro account is already configured.",

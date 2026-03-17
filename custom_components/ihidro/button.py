@@ -25,7 +25,7 @@ from .const import (
     ATTR_ACCOUNT_NUMBER,
 )
 from .coordinator import IhidroAccountCoordinator
-from .helpers import safe_get_table, is_reading_window_open
+from .helpers import is_reading_window_open, get_data_list, get_meter_window_info, get_meter_index_cascading
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ class IhidroSubmitReadingButton(CoordinatorEntity, ButtonEntity):
         self.entry = entry
         self._uan = coordinator.uan
         self._an = coordinator.an
-        self._attr_name = f"Trimite Index {self._uan}"
+        self._attr_name = "Trimite Index"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_submit_reading"
 
     @property
@@ -131,11 +131,17 @@ class IhidroSubmitReadingButton(CoordinatorEntity, ButtonEntity):
         """Obține numărul contorului din datele coordinator-ului."""
         if not self.coordinator.data:
             return None
-        meter_table = safe_get_table(
-            self.coordinator.data.get("meter_details")
-        )
-        if meter_table:
-            return meter_table[0].get("MeterNumber")
+        # meter_details este mereu gol; fallback la previous_meter_read sau meter_counter_series
+        prev_reads = get_data_list(self.coordinator.data.get("previous_meter_read"))
+        if prev_reads:
+            sn = prev_reads[0].get("serialNumber")
+            if sn:
+                return sn
+        counter_series = get_data_list(self.coordinator.data.get("meter_counter_series"))
+        if counter_series:
+            cs = counter_series[0].get("CounterSeries")
+            if cs:
+                return cs
         return None
 
     async def async_press(self) -> None:
@@ -194,10 +200,10 @@ class IhidroSubmitReadingButton(CoordinatorEntity, ButtonEntity):
             # Verificăm răspunsul de validare
             # API-ul returnează erori dacă valoarea este nerealistă
             # (prea mare, prea mică, index mai mic decât precedentul)
-            validation_table = safe_get_table(validation_result)
-            if validation_table:
-                status = validation_table[0].get("Status", "")
-                message = validation_table[0].get("Message", "")
+            val_result = validation_result.get("result") if isinstance(validation_result, dict) else None
+            if isinstance(val_result, dict):
+                status = val_result.get("Status", "")
+                message = val_result.get("Message", "")
                 if status and str(status).upper() in ("ERROR", "FAIL", "FAILED"):
                     _LOGGER.error(
                         "Pre-validare eșuată pentru POD %s: %s",
@@ -212,10 +218,9 @@ class IhidroSubmitReadingButton(CoordinatorEntity, ButtonEntity):
                     message,
                 )
             else:
-                # Dacă nu primim Table dar nici eroare, continuăm
-                # (unele conturi pot să nu returneze date în GetMeterValue)
+                # Dacă nu primim date structurate dar nici eroare, continuăm
                 _LOGGER.debug(
-                    "GetMeterValue nu a returnat date tabelare pentru POD %s, "
+                    "GetMeterValue nu a returnat date structurate pentru POD %s, "
                     "continuăm cu trimiterea",
                     self._uan,
                 )
@@ -284,23 +289,16 @@ class IhidroSubmitReadingButton(CoordinatorEntity, ButtonEntity):
         if self.coordinator.data:
             # Info fereastră citire
             window_data = self.coordinator.data.get("meter_window")
-            window_table = safe_get_table(window_data)
-            if window_table:
-                window = window_table[0]
+            window = get_meter_window_info(window_data)
+            if window:
                 attrs["window_open"] = is_reading_window_open(window_data)
-                attrs["window_start"] = window.get("WindowStartDate") or window.get(
-                    "StartDate"
-                )
-                attrs["window_end"] = window.get("WindowEndDate") or window.get(
-                    "EndDate"
-                )
+                attrs["window_start"] = window.get("NextMonthOpeningDate") or window.get("OpeningDate")
+                attrs["window_end"] = window.get("NextMonthClosingDate") or window.get("ClosingDate")
 
             # Numărul contorului
-            meter_table = safe_get_table(
-                self.coordinator.data.get("meter_details")
-            )
-            if meter_table:
-                attrs["meter_number"] = meter_table[0].get("MeterNumber")
+            meter_number = self._get_meter_number()
+            if meter_number:
+                attrs["meter_number"] = meter_number
 
             # Valoarea curentă din Number entity (pt. vizibilitate)
             current_reading = self._get_meter_reading_value()

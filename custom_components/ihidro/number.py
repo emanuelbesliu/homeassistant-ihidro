@@ -28,7 +28,7 @@ from .const import (
     ATTR_ACCOUNT_NUMBER,
 )
 from .coordinator import IhidroAccountCoordinator
-from .helpers import safe_get_table, safe_float
+from .helpers import safe_float, get_meter_index_cascading, get_data_list
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -78,7 +78,7 @@ class IhidroMeterReadingNumber(CoordinatorEntity, NumberEntity):
         self.entry = entry
         self._uan = coordinator.uan
         self._an = coordinator.an
-        self._attr_name = f"Index Transmitere {self._uan}"
+        self._attr_name = "Index Transmitere"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_meter_reading_input"
 
         # Valoarea stocată intern
@@ -105,13 +105,11 @@ class IhidroMeterReadingNumber(CoordinatorEntity, NumberEntity):
         if self._value is not None:
             return self._value
 
-        # Valoare implicită: ultimul index din coordinator
+        # Valoare implicită: ultimul index din coordinator (cascading fallback)
         if self.coordinator.data:
-            meter_table = safe_get_table(
-                self.coordinator.data.get("meter_details")
-            )
-            if meter_table:
-                return safe_float(meter_table[0].get("MeterReading"))
+            value, _src = get_meter_index_cascading(self.coordinator.data)
+            if value is not None and value > 0:
+                return float(value)
         return None
 
     async def async_set_native_value(self, value: float) -> None:
@@ -132,11 +130,19 @@ class IhidroMeterReadingNumber(CoordinatorEntity, NumberEntity):
         }
 
         if self.coordinator.data:
-            meter_table = safe_get_table(
-                self.coordinator.data.get("meter_details")
+            # Ultimul index cunoscut (cascading fallback)
+            value, src = get_meter_index_cascading(self.coordinator.data)
+            if value is not None:
+                attrs["last_known_reading"] = value
+                attrs["reading_source"] = src
+
+            # Numărul contorului din previous_meter_read sau meter_counter_series
+            prev_reads = get_data_list(
+                self.coordinator.data.get("previous_meter_read")
             )
-            if meter_table:
-                attrs["last_known_reading"] = meter_table[0].get("MeterReading")
-                attrs["meter_number"] = meter_table[0].get("MeterNumber")
+            if prev_reads:
+                sn = prev_reads[0].get("serialNumber")
+                if sn:
+                    attrs["meter_number"] = sn
 
         return attrs

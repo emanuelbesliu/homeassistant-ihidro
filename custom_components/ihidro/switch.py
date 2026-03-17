@@ -30,7 +30,7 @@ from .const import (
     ATTR_ACCOUNT_NUMBER,
 )
 from .coordinator import IhidroAccountCoordinator
-from .helpers import safe_get_table, safe_float, is_reading_window_open, parse_date
+from .helpers import safe_float, is_reading_window_open, parse_date, get_meter_index_cascading, get_data_list, get_meter_window_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ class IhidroAutoSubmitSwitch(CoordinatorEntity, SwitchEntity):
         self.entry = entry
         self._uan = coordinator.uan
         self._an = coordinator.an
-        self._attr_name = f"Autotransmitere {self._uan}"
+        self._attr_name = "Autotransmitere"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_autosubmit"
 
         # Stare internă
@@ -216,23 +216,26 @@ class IhidroAutoSubmitSwitch(CoordinatorEntity, SwitchEntity):
         """Obține ultimul index al contorului din datele coordinator-ului."""
         if not self.coordinator.data:
             return None
-        meter_table = safe_get_table(
-            self.coordinator.data.get("meter_details")
-        )
-        if meter_table:
-            value = safe_float(meter_table[0].get("MeterReading"))
-            return value if value > 0 else None
+        value, _src = get_meter_index_cascading(self.coordinator.data)
+        if value is not None and value > 0:
+            return float(value)
         return None
 
     def _get_meter_number(self) -> Optional[str]:
         """Obține numărul contorului din datele coordinator-ului."""
         if not self.coordinator.data:
             return None
-        meter_table = safe_get_table(
-            self.coordinator.data.get("meter_details")
-        )
-        if meter_table:
-            return meter_table[0].get("MeterNumber")
+        # meter_details este mereu gol; fallback la previous_meter_read sau meter_counter_series
+        prev_reads = get_data_list(self.coordinator.data.get("previous_meter_read"))
+        if prev_reads:
+            sn = prev_reads[0].get("serialNumber")
+            if sn:
+                return sn
+        counter_series = get_data_list(self.coordinator.data.get("meter_counter_series"))
+        if counter_series:
+            cs = counter_series[0].get("CounterSeries")
+            if cs:
+                return cs
         return None
 
     def _get_current_energy_kwh(self) -> Optional[float]:
@@ -292,9 +295,9 @@ class IhidroAutoSubmitSwitch(CoordinatorEntity, SwitchEntity):
         if not self.coordinator.data:
             return None
         window_data = self.coordinator.data.get("meter_window")
-        window_table = safe_get_table(window_data)
-        if window_table:
-            start_str = window_table[0].get("WindowStartDate") or window_table[0].get("StartDate")
+        window = get_meter_window_info(window_data)
+        if window:
+            start_str = window.get("NextMonthOpeningDate") or window.get("OpeningDate")
             if start_str:
                 return parse_date(start_str)
         return None
@@ -423,10 +426,10 @@ class IhidroAutoSubmitSwitch(CoordinatorEntity, SwitchEntity):
                 meter_number=meter_number,
                 meter_reading=computed_index,
             )
-            validation_table = safe_get_table(validation_result)
-            if validation_table:
-                status = validation_table[0].get("Status", "")
-                message = validation_table[0].get("Message", "")
+            val_result = validation_result.get("result") if isinstance(validation_result, dict) else None
+            if isinstance(val_result, dict):
+                status = val_result.get("Status", "")
+                message = val_result.get("Message", "")
                 if status and str(status).upper() in ("ERROR", "FAIL", "FAILED"):
                     _LOGGER.error(
                         "Autotransmitere [%s]: Pre-validare eșuată: %s",
@@ -558,7 +561,7 @@ class IhidroAutoSubmitDelayNumber(CoordinatorEntity, NumberEntity):
         self.entry = entry
         self._uan = coordinator.uan
         self._an = coordinator.an
-        self._attr_name = f"Delay Autotransmitere {self._uan}"
+        self._attr_name = "Delay Autotransmitere"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_autosubmit_delay"
 
         # Valoarea stocată intern (default: 1 zi)

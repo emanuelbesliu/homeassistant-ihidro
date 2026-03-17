@@ -52,7 +52,6 @@ from .const import (
 )
 from .coordinator import IhidroAccountCoordinator
 from .helpers import (
-    safe_get_table,
     safe_float,
     format_date_ro,
     format_ron,
@@ -62,6 +61,12 @@ from .helpers import (
     get_meter_index_cascading,
     get_payment_list_from_bill_history,
     split_payments_by_channel,
+    get_current_bill_data,
+    get_bill_history_list,
+    get_data_list,
+    get_data_dict,
+    get_meter_window_info,
+    get_tentative_data,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -186,31 +191,30 @@ class IhidroCurrentBalanceSensor(IhidroBaseSensor):
 
     def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
-        self._attr_name = f"Sold Curent {self._uan}"
+        self._attr_name = "Sold Curent"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_current_balance"
 
     @property
     def native_value(self) -> Optional[float]:
-        table = safe_get_table(self._data.get("current_bill"))
-        if table:
-            return safe_float(table[0].get("Amount"))
+        bill = get_current_bill_data(self._data.get("current_bill"))
+        if bill:
+            return safe_float(bill.get("rembalance") or bill.get("billamount"))
         return None
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
-        table = safe_get_table(self._data.get("current_bill"))
+        bill = get_current_bill_data(self._data.get("current_bill"))
         attrs: Dict[str, Any] = {
             ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
             ATTR_ACCOUNT_NUMBER: self._an,
             ATTR_ADDRESS: self._address,
         }
-        if table:
-            bill = table[0]
-            amount = safe_float(bill.get("Amount"))
-            attrs[ATTR_DUE_DATE] = format_date_ro(bill.get("DueDate"))
-            attrs["bill_number"] = bill.get("BillNumber")
-            attrs["bill_date"] = format_date_ro(bill.get("BillDate"))
-            attrs[ATTR_STATUS] = bill.get("Status")
+        if bill:
+            amount = safe_float(bill.get("rembalance") or bill.get("billamount"))
+            attrs[ATTR_DUE_DATE] = format_date_ro(bill.get("duedate"))
+            attrs["bill_number"] = bill.get("invoicenumber")
+            attrs["bill_amount"] = format_ron(safe_float(bill.get("billamount")))
+            attrs["remaining_balance"] = format_ron(safe_float(bill.get("rembalance")))
             attrs["sold_formatat"] = format_ron(amount)
         return attrs
 
@@ -227,32 +231,35 @@ class IhidroLastBillSensor(IhidroBaseSensor):
 
     def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
-        self._attr_name = f"Ultima Factură {self._uan}"
+        self._attr_name = "Ultima Factură"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_last_bill"
 
     @property
     def native_value(self) -> Optional[str]:
-        table = safe_get_table(self._data.get("bill_history"))
-        if table:
-            return table[0].get("BillNumber")
+        bills = get_bill_history_list(self._data.get("bill_history"))
+        if bills:
+            # Cel mai relevant identificator disponibil
+            return bills[0].get("exbel") or bills[0].get("invoiceType")
         return None
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
-        table = safe_get_table(self._data.get("bill_history"))
+        bills = get_bill_history_list(self._data.get("bill_history"))
         attrs: Dict[str, Any] = {
             ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
             ATTR_ACCOUNT_NUMBER: self._an,
         }
-        if table:
-            last_bill = table[0]
-            amount = safe_float(last_bill.get("Amount"))
-            attrs["bill_date"] = format_date_ro(last_bill.get("BillDate"))
-            attrs[ATTR_AMOUNT] = last_bill.get("Amount")
+        if bills:
+            last_bill = bills[0]
+            amount = safe_float(last_bill.get("amount"))
+            attrs["invoice_date"] = format_date_ro(last_bill.get("invoiceDate"))
+            attrs[ATTR_AMOUNT] = last_bill.get("amount")
             attrs["amount_formatat"] = format_ron(amount)
-            attrs[ATTR_CONSUMPTION] = last_bill.get("Consumption")
-            attrs[ATTR_DUE_DATE] = format_date_ro(last_bill.get("DueDate"))
-            attrs[ATTR_STATUS] = last_bill.get("Status")
+            attrs["invoice_type"] = last_bill.get("invoiceType")
+            attrs[ATTR_DUE_DATE] = format_date_ro(last_bill.get("dueDate"))
+            attrs["bill_period"] = last_bill.get("billPeriod")
+            attrs["bill_days"] = last_bill.get("billDays")
+            attrs["current_charges"] = last_bill.get("currentCharges")
         return attrs
 
 
@@ -275,19 +282,12 @@ class IhidroMeterReadingSensor(IhidroBaseSensor):
 
     def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
-        self._attr_name = f"Index Contor {self._uan}"
+        self._attr_name = "Index Contor"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_meter_reading"
 
     @property
     def native_value(self) -> Optional[float]:
-        # Încercăm mai întâi GetMultiMeter (cel mai proaspăt)
-        table = safe_get_table(self._data.get("meter_details"))
-        if table:
-            reading = safe_float(table[0].get("MeterReading"))
-            if reading > 0:
-                return reading
-
-        # Fallback: cascading pe 3 surse
+        # Fallback: cascading pe 3 surse (meter_details este de obicei gol)
         active_meter = self._data.get("active_meter")
         value, source = get_meter_index_cascading(
             self._data, register="1.8.0", active_meter=active_meter
@@ -296,9 +296,6 @@ class IhidroMeterReadingSensor(IhidroBaseSensor):
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
-        meter_table = safe_get_table(self._data.get("meter_details"))
-        window_table = safe_get_table(self._data.get("meter_window"))
-
         attrs: Dict[str, Any] = {
             ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
             ATTR_ACCOUNT_NUMBER: self._an,
@@ -312,21 +309,22 @@ class IhidroMeterReadingSensor(IhidroBaseSensor):
         attrs["data_source"] = source
         attrs["active_meter"] = active_meter
 
-        if meter_table:
-            meter_info = meter_table[0]
-            attrs[ATTR_METER_NUMBER] = meter_info.get("MeterNumber")
-            attrs[ATTR_LAST_READING] = meter_info.get("MeterReading")
-            attrs[ATTR_LAST_READING_DATE] = format_date_ro(
-                meter_info.get("ReadingDate")
-            )
+        # Info din meter_read_history
+        history_entries = get_data_list(self._data.get("meter_read_history"))
+        if history_entries:
+            entry = history_entries[0]
+            attrs[ATTR_METER_NUMBER] = entry.get("CounterSeries")
+            attrs[ATTR_LAST_READING] = entry.get("Index")
+            attrs[ATTR_LAST_READING_DATE] = format_date_ro(entry.get("Date"))
 
-        if window_table:
-            window_info = window_table[0]
+        # Info fereastra citire
+        window = get_meter_window_info(self._data.get("meter_window"))
+        if window:
             attrs["reading_window_start"] = format_date_ro(
-                window_info.get("WindowStartDate")
+                window.get("NextMonthOpeningDate") or window.get("OpeningDate")
             )
             attrs["reading_window_end"] = format_date_ro(
-                window_info.get("WindowEndDate")
+                window.get("NextMonthClosingDate") or window.get("ClosingDate")
             )
 
         return attrs
@@ -347,39 +345,72 @@ class IhidroMonthlyConsumptionSensor(IhidroBaseSensor):
 
     def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
-        self._attr_name = f"Consum Lunar {self._uan}"
+        self._attr_name = "Consum Lunar"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_monthly_consumption"
 
     @property
     def native_value(self) -> Optional[float]:
-        table = safe_get_table(self._data.get("usage_history"))
-        if table:
-            return safe_float(table[0].get("Consumption"))
+        # Sursa principală: getTentativeData din daily_usage (SoFar = consum ciclu curent)
+        tentative = get_tentative_data(self._data.get("daily_usage"))
+        if tentative:
+            so_far = safe_float(tentative.get("SoFar"))
+            if so_far > 0:
+                return so_far
+
+        # Fallback: derivă din diferența ultimelor 2 indexuri din meter_read_history
+        history = get_data_list(self._data.get("meter_read_history"))
+        if len(history) >= 2:
+            # Filtrăm pe registrul standard 1.8.0
+            readings = []
+            for entry in history:
+                reg = entry.get("Registers", "") or entry.get("Register", "")
+                if reg == "1.8.0" or (reg and "_P" not in reg.upper()):
+                    idx = safe_float(entry.get("Index") or entry.get("MeterReading"))
+                    if idx > 0:
+                        readings.append(idx)
+            if len(readings) >= 2:
+                consumption = readings[0] - readings[1]
+                if consumption > 0:
+                    return round(consumption, 2)
+
         return None
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
-        table = safe_get_table(self._data.get("usage_history"))
         attrs: Dict[str, Any] = {
             ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
             ATTR_ACCOUNT_NUMBER: self._an,
         }
-        if table:
-            history = []
-            for item in table[:6]:
-                consumption = safe_float(item.get("Consumption"))
-                cost = safe_float(item.get("Cost"))
-                history.append(
-                    {
-                        "month": item.get("Month"),
-                        "year": item.get("Year"),
-                        "consumption": item.get("Consumption"),
-                        "consumption_formatat": format_number_ro(consumption),
-                        "cost": item.get("Cost"),
-                        "cost_formatat": format_ron(cost),
-                    }
-                )
-            attrs["history"] = history
+
+        tentative = get_tentative_data(self._data.get("daily_usage"))
+        if tentative:
+            so_far = safe_float(tentative.get("SoFar"))
+            expected = safe_float(tentative.get("ExpectedUsage"))
+            average = safe_float(tentative.get("Average"))
+            highest = safe_float(tentative.get("Highest"))
+            attrs["usage_cycle"] = tentative.get("UsageCycle")
+            attrs["so_far_kwh"] = format_number_ro(so_far) + " kWh" if so_far > 0 else None
+            attrs["expected_kwh"] = format_number_ro(expected) + " kWh" if expected > 0 else None
+            attrs["average_kwh"] = format_number_ro(average) + " kWh" if average > 0 else None
+            attrs["highest_kwh"] = format_number_ro(highest) + " kWh" if highest > 0 else None
+            attrs["data_source"] = "daily_usage_tentative"
+        else:
+            # Info derivată din meter_read_history
+            history = get_data_list(self._data.get("meter_read_history"))
+            if history:
+                recent = []
+                for item in history[:6]:
+                    reg = item.get("Registers", "") or item.get("Register", "")
+                    if reg == "1.8.0" or (reg and "_P" not in reg.upper()):
+                        idx = safe_float(item.get("Index") or item.get("MeterReading"))
+                        recent.append({
+                            "index": idx,
+                            "date": format_date_ro(item.get("Date")),
+                            "register": reg,
+                        })
+                attrs["recent_readings"] = recent[:4]
+                attrs["data_source"] = "meter_read_history_delta"
+
         return attrs
 
 
@@ -402,7 +433,7 @@ class IhidroLastPaymentSensor(IhidroBaseSensor):
 
     def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
-        self._attr_name = f"Ultima Plată {self._uan}"
+        self._attr_name = "Ultima Plată"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_last_payment"
 
     def _get_payments(self) -> List[Dict[str, Any]]:
@@ -449,7 +480,7 @@ class IhidroPODInfoSensor(IhidroBaseSensor):
 
     def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
-        self._attr_name = f"POD Info {self._uan}"
+        self._attr_name = "POD Info"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_pod_info"
 
     @property
@@ -459,8 +490,8 @@ class IhidroPODInfoSensor(IhidroBaseSensor):
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
         account_info = self._data.get("account_info", {})
-        pods_table = safe_get_table(self._data.get("pods"))
-        master_table = safe_get_table(self._data.get("master_data_status"))
+        pods_entries = get_data_list(self._data.get("pods"))
+        master_entries = get_data_list(self._data.get("master_data_status"))
 
         attrs: Dict[str, Any] = {
             ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
@@ -471,19 +502,19 @@ class IhidroPODInfoSensor(IhidroBaseSensor):
             "active_meter": self._data.get("active_meter"),
         }
 
-        # Date POD din GetPods
-        if pods_table:
-            pod = pods_table[0]
-            attrs["installation"] = pod.get("Installation")
-            attrs["device"] = pod.get("Device")
-            attrs["device_location"] = pod.get("DeviceLoc")
+        # Date POD din GetPods (lowercase keys)
+        if pods_entries:
+            pod = pods_entries[0]
+            attrs["installation"] = pod.get("installation")
+            attrs["pod"] = pod.get("pod")
+            attrs["contract_account_id"] = pod.get("contractAccountID")
 
         # Date master din GetMasterDataStatus
-        if master_table:
-            master = master_table[0]
-            attrs["is_ami"] = master.get("IsAMI")
-            attrs["distributor"] = master.get("Distributor") or master.get("DistributorName")
-            attrs["meter_type"] = master.get("MeterType")
+        if master_entries:
+            master = master_entries[0]
+            attrs["master_id"] = master.get("MasterID")
+            attrs["service_name"] = master.get("ServiceName")
+            attrs["last_updated"] = master.get("LastUpdated")
 
         return attrs
 
@@ -500,30 +531,43 @@ class IhidroDateContractSensor(IhidroBaseSensor):
 
     def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
-        self._attr_name = f"Data Contract {self._uan}"
+        self._attr_name = "Data Contract"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_date_contract"
 
     @property
     def native_value(self) -> Optional[str]:
-        table = safe_get_table(self._data.get("current_bill"))
-        if table:
-            date_contract = table[0].get("DateContract") or table[0].get(
-                "ContractDate"
+        # current_bill nu are DateContract — încercăm previous_meter_read
+        prev_entries = get_data_list(self._data.get("previous_meter_read"))
+        if prev_entries:
+            # Câmpuri posibile: distContractDate, prevMRDate
+            date_contract = (
+                prev_entries[0].get("distContractDate")
+                or prev_entries[0].get("ContractDate")
+                or prev_entries[0].get("DateContract")
             )
-            return format_date_ro(date_contract)
+            if date_contract:
+                return format_date_ro(date_contract)
+
+        # Fallback pe current_bill (în cazul în care API-ul se schimbă)
+        bill = get_current_bill_data(self._data.get("current_bill"))
+        if bill:
+            date_contract = bill.get("DateContract") or bill.get("ContractDate")
+            if date_contract:
+                return format_date_ro(date_contract)
+
         return None
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
-        table = safe_get_table(self._data.get("current_bill"))
         attrs: Dict[str, Any] = {
             ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
         }
-        if table:
-            bill = table[0]
-            attrs["contract_number"] = bill.get("ContractNumber") or bill.get(
-                "Contract"
-            )
+        prev_entries = get_data_list(self._data.get("previous_meter_read"))
+        if prev_entries:
+            entry = prev_entries[0]
+            attrs["serial_number"] = entry.get("serialNumber")
+            attrs["distributor"] = entry.get("distributor")
+            attrs["supplier"] = entry.get("supplier")
         return attrs
 
 
@@ -542,31 +586,51 @@ class IhidroConsumAnualSensor(IhidroBaseSensor):
 
     def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
-        self._attr_name = f"Consum Anual {self._uan}"
+        self._attr_name = "Consum Anual"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_consum_anual"
 
     @property
     def native_value(self) -> Optional[float]:
-        table = safe_get_table(self._data.get("bill_history"))
-        if not table:
+        # bill_history nu are câmpul Consumption — derivăm din meter_read_history
+        # Consumul anual = diferența între primul și ultimul index din istoric
+        history = get_data_list(self._data.get("meter_read_history"))
+        if not history:
             return None
 
-        total = 0.0
-        for bill in table:
-            total += safe_float(bill.get("Consumption"))
-        return round(total, 2) if total > 0 else None
+        # Filtrăm doar registrul standard (nu _P)
+        readings = []
+        for entry in history:
+            reg = entry.get("Registers", "") or entry.get("Register", "")
+            if reg == "1.8.0" or (reg and "_P" not in reg.upper()):
+                idx = safe_float(entry.get("Index") or entry.get("MeterReading"))
+                if idx > 0:
+                    readings.append(idx)
+
+        if len(readings) >= 2:
+            # Lista e ordonată cronologic descrescător (cel mai recent primul)
+            consumption = readings[0] - readings[-1]
+            return round(consumption, 2) if consumption > 0 else None
+
+        return None
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
-        table = safe_get_table(self._data.get("bill_history"))
-        total = 0.0
-        if table:
-            for bill in table:
-                total += safe_float(bill.get("Consumption"))
+        history = get_data_list(self._data.get("meter_read_history"))
+        readings = []
+        if history:
+            for entry in history:
+                reg = entry.get("Registers", "") or entry.get("Register", "")
+                if reg == "1.8.0" or (reg and "_P" not in reg.upper()):
+                    idx = safe_float(entry.get("Index") or entry.get("MeterReading"))
+                    if idx > 0:
+                        readings.append(idx)
+
+        total = (readings[0] - readings[-1]) if len(readings) >= 2 else 0.0
         attrs: Dict[str, Any] = {
             ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
-            "bills_count": len(table) if table else 0,
+            "readings_count": len(readings),
             "consum_formatat": format_number_ro(total) + " kWh" if total > 0 else None,
+            "data_source": "meter_read_history_delta",
         }
         return attrs
 
@@ -592,7 +656,7 @@ class IhidroIndexAnualSensor(IhidroBaseSensor):
 
     def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
-        self._attr_name = f"Index Istoric {self._uan}"
+        self._attr_name = "Index Istoric"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_index_anual"
 
     @property
@@ -610,22 +674,22 @@ class IhidroIndexAnualSensor(IhidroBaseSensor):
             self._data, register="1.8.0", active_meter=active_meter
         )
 
-        table = safe_get_table(self._data.get("meter_read_history"))
+        history_entries = get_data_list(self._data.get("meter_read_history"))
         attrs: Dict[str, Any] = {
             ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
             "data_source": source,
             "active_meter": active_meter,
         }
-        if table:
+        if history_entries:
             # Ultimele 3 citiri (doar registrul standard)
             history = []
-            for item in table:
-                register = item.get("Register", "")
-                if register == "1.8.0" or not register.endswith("_P"):
+            for item in history_entries:
+                register = item.get("Registers", "") or item.get("Register", "")
+                if register == "1.8.0" or (register and not register.endswith("_P")):
                     history.append(
                         {
-                            "reading": item.get("MeterReading"),
-                            "date": format_date_ro(item.get("ReadingDate")),
+                            "reading": item.get("Index"),
+                            "date": format_date_ro(item.get("Date")),
                             "register": register,
                             "type": item.get("ReadingType"),
                         }
@@ -654,7 +718,7 @@ class IhidroTotalPlatiAnualSensor(IhidroBaseSensor):
 
     def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
-        self._attr_name = f"Total Plăți Anual {self._uan}"
+        self._attr_name = "Total Plăți Anual"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_total_plati_anual"
 
     def _get_payments(self) -> List[Dict[str, Any]]:
@@ -705,7 +769,7 @@ class IhidroProductieProsumatorSensor(IhidroBaseSensor):
 
     def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
-        self._attr_name = f"Producție Prosumator {self._uan}"
+        self._attr_name = "Producție Prosumator"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_productie_prosumator"
 
     @property
@@ -719,35 +783,35 @@ class IhidroProductieProsumatorSensor(IhidroBaseSensor):
             return value
 
         # Fallback: caută orice registru cu _P
-        table = safe_get_table(self._data.get("meter_read_history"))
-        if table:
-            for entry_item in table:
-                register = entry_item.get("Register", "")
+        history = get_data_list(self._data.get("meter_read_history"))
+        if history:
+            for entry_item in history:
+                register = entry_item.get("Registers", "") or entry_item.get("Register", "")
                 if "_P" in register.upper():
-                    reading = safe_float(entry_item.get("MeterReading"))
+                    reading = safe_float(entry_item.get("Index") or entry_item.get("MeterReading"))
                     if reading > 0:
                         return reading
         return None
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
-        table = safe_get_table(self._data.get("meter_read_history"))
+        history = get_data_list(self._data.get("meter_read_history"))
         attrs: Dict[str, Any] = {
             ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
             "is_prosumer": True,
         }
-        if table:
+        if history:
             # Ultimele citiri de producție
             production_history = []
-            for item in table:
-                register = item.get("Register", "")
+            for item in history:
+                register = item.get("Registers", "") or item.get("Register", "")
                 if "_P" in register.upper():
-                    reading = safe_float(item.get("MeterReading"))
+                    reading = safe_float(item.get("Index") or item.get("MeterReading"))
                     production_history.append(
                         {
-                            "reading": item.get("MeterReading"),
+                            "reading": item.get("Index"),
                             "reading_formatat": format_number_ro(reading) + " kWh",
-                            "date": format_date_ro(item.get("ReadingDate")),
+                            "date": format_date_ro(item.get("Date")),
                             "register": register,
                         }
                     )
@@ -777,7 +841,7 @@ class IhidroCompensareANRESensor(IhidroBaseSensor):
 
     def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
-        self._attr_name = f"Compensare ANRE {self._uan}"
+        self._attr_name = "Compensare ANRE"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_compensare_anre"
 
     def _get_payments(self) -> List[Dict[str, Any]]:
@@ -830,13 +894,13 @@ class IhidroCompensareANRESensor(IhidroBaseSensor):
             attrs["recent_compensations"] = recent
 
         # Adăugăm ultimele citiri pentru referință
-        table = safe_get_table(self._data.get("meter_read_history"))
-        if table:
+        history = get_data_list(self._data.get("meter_read_history"))
+        if history:
             latest_consumption = None
             latest_production = None
-            for item in table:
-                register = item.get("Register", "")
-                reading = safe_float(item.get("MeterReading"))
+            for item in history:
+                register = item.get("Registers", "") or item.get("Register", "")
+                reading = safe_float(item.get("Index") or item.get("MeterReading"))
                 if "_P" in register.upper() and latest_production is None:
                     latest_production = reading
                 elif latest_consumption is None and "_P" not in register.upper():
@@ -867,43 +931,39 @@ class IhidroDailyConsumptionSensor(IhidroBaseSensor):
 
     def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
-        self._attr_name = f"Consum Zilnic {self._uan}"
+        self._attr_name = "Consum Zilnic"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_daily_consumption"
 
     @property
     def native_value(self) -> Optional[float]:
-        table = safe_get_table(self._data.get("daily_usage"))
-        if table:
-            # Ultima intrare din tabel = cea mai recentă zi
-            last = table[-1]
-            return safe_float(last.get("Consumption"))
+        tentative = get_tentative_data(self._data.get("daily_usage"))
+        if tentative:
+            so_far = safe_float(tentative.get("SoFar"))
+            if so_far > 0:
+                return so_far
+            # Fallback pe Average dacă SoFar este 0
+            average = safe_float(tentative.get("Average"))
+            if average > 0:
+                return average
         return None
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
-        table = safe_get_table(self._data.get("daily_usage"))
         attrs: Dict[str, Any] = {
             ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
             ATTR_ACCOUNT_NUMBER: self._an,
         }
-        if table:
-            # Ultimele 7 zile de consum (cele mai recente la final)
-            recent_days = table[-7:] if len(table) > 7 else table
-            history = []
-            for item in recent_days:
-                consumption = safe_float(item.get("Consumption"))
-                cost = safe_float(item.get("Cost"))
-                history.append(
-                    {
-                        "date": item.get("Month") or item.get("Date"),
-                        "consumption": item.get("Consumption"),
-                        "consumption_kwh": format_number_ro(consumption) + " kWh",
-                        "cost": item.get("Cost"),
-                        "cost_formatat": format_ron(cost) if cost > 0 else None,
-                    }
-                )
-            attrs["daily_history"] = history
-            attrs["days_count"] = len(table)
+        tentative = get_tentative_data(self._data.get("daily_usage"))
+        if tentative:
+            so_far = safe_float(tentative.get("SoFar"))
+            expected = safe_float(tentative.get("ExpectedUsage"))
+            average = safe_float(tentative.get("Average"))
+            highest = safe_float(tentative.get("Highest"))
+            attrs["so_far_kwh"] = format_number_ro(so_far) + " kWh" if so_far > 0 else "0 kWh"
+            attrs["expected_kwh"] = format_number_ro(expected) + " kWh" if expected > 0 else None
+            attrs["average_kwh"] = format_number_ro(average) + " kWh" if average > 0 else None
+            attrs["highest_kwh"] = format_number_ro(highest) + " kWh" if highest > 0 else None
+            attrs["usage_cycle"] = tentative.get("UsageCycle")
         return attrs
 
 
@@ -928,47 +988,36 @@ class IhidroGenerationSensor(IhidroBaseSensor):
 
     def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
-        self._attr_name = f"Generare Energie {self._uan}"
+        self._attr_name = "Generare Energie"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_generation"
 
     @property
     def native_value(self) -> Optional[float]:
-        table = safe_get_table(self._data.get("generation_data"))
-        if table:
-            # Cel mai recent punct de date
-            return safe_float(table[0].get("Consumption"))
+        tentative = get_tentative_data(self._data.get("generation_data"))
+        if tentative:
+            so_far = safe_float(tentative.get("SoFar"))
+            if so_far > 0:
+                return so_far
         return None
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
-        table = safe_get_table(self._data.get("generation_data"))
         attrs: Dict[str, Any] = {
             ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
             ATTR_ACCOUNT_NUMBER: self._an,
             "is_prosumer": True,
         }
-        if table:
-            history = []
-            for item in table[:6]:
-                consumption = safe_float(item.get("Consumption"))
-                cost = safe_float(item.get("Cost"))
-                history.append(
-                    {
-                        "month": item.get("Month"),
-                        "year": item.get("Year"),
-                        "generation": item.get("Consumption"),
-                        "generation_kwh": format_number_ro(consumption) + " kWh",
-                        "value": item.get("Cost"),
-                        "value_formatat": format_ron(cost) if cost != 0 else None,
-                    }
-                )
-            attrs["generation_history"] = history
-            # Total anual producție
-            total = sum(safe_float(item.get("Consumption")) for item in table)
-            attrs["total_annual_generation"] = round(total, 2) if total > 0 else None
-            attrs["total_formatat"] = (
-                format_number_ro(total) + " kWh" if total > 0 else None
-            )
+        tentative = get_tentative_data(self._data.get("generation_data"))
+        if tentative:
+            so_far = safe_float(tentative.get("SoFar"))
+            expected = safe_float(tentative.get("ExpectedUsage"))
+            average = safe_float(tentative.get("Average"))
+            highest = safe_float(tentative.get("Highest"))
+            attrs["so_far_kwh"] = format_number_ro(so_far) + " kWh" if so_far > 0 else "0 kWh"
+            attrs["expected_kwh"] = format_number_ro(expected) + " kWh" if expected > 0 else None
+            attrs["average_kwh"] = format_number_ro(average) + " kWh" if average > 0 else None
+            attrs["highest_kwh"] = format_number_ro(highest) + " kWh" if highest > 0 else None
+            attrs["usage_cycle"] = tentative.get("UsageCycle")
         return attrs
 
 
@@ -993,45 +1042,36 @@ class IhidroNetUsageSensor(IhidroBaseSensor):
 
     def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
-        self._attr_name = f"Consum Net {self._uan}"
+        self._attr_name = "Consum Net"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_net_usage"
 
     @property
     def native_value(self) -> Optional[float]:
-        table = safe_get_table(self._data.get("net_usage"))
-        if table:
-            return safe_float(table[0].get("Consumption"))
+        tentative = get_tentative_data(self._data.get("net_usage"))
+        if tentative:
+            so_far = safe_float(tentative.get("SoFar"))
+            # Net usage poate fi 0 sau negativ (surplus)
+            return so_far
         return None
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
-        table = safe_get_table(self._data.get("net_usage"))
         attrs: Dict[str, Any] = {
             ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
             ATTR_ACCOUNT_NUMBER: self._an,
             "is_prosumer": True,
         }
-        if table:
-            history = []
-            total_net = 0.0
-            for item in table[:6]:
-                consumption = safe_float(item.get("Consumption"))
-                total_net += consumption
-                cost = safe_float(item.get("Cost"))
-                history.append(
-                    {
-                        "month": item.get("Month"),
-                        "year": item.get("Year"),
-                        "net_consumption": item.get("Consumption"),
-                        "net_kwh": format_number_ro(consumption) + " kWh",
-                        "cost": item.get("Cost"),
-                        "cost_formatat": format_ron(cost) if cost != 0 else None,
-                        "is_surplus": consumption < 0,
-                    }
-                )
-            attrs["net_history"] = history
-            attrs["total_net_annual"] = round(total_net, 2)
-            attrs["annual_surplus"] = total_net < 0
+        tentative = get_tentative_data(self._data.get("net_usage"))
+        if tentative:
+            so_far = safe_float(tentative.get("SoFar"))
+            expected = safe_float(tentative.get("ExpectedUsage"))
+            average = safe_float(tentative.get("Average"))
+            attrs["net_so_far_kwh"] = format_number_ro(so_far) + " kWh"
+            attrs["expected_kwh"] = format_number_ro(expected) + " kWh" if expected != 0 else None
+            attrs["average_kwh"] = format_number_ro(average) + " kWh" if average != 0 else None
+            attrs["usage_cycle"] = tentative.get("UsageCycle")
+            attrs["is_surplus"] = so_far < 0
+            attrs["is_ami"] = tentative.get("IsOnlyAMI")
         return attrs
 
 
@@ -1054,14 +1094,14 @@ class IhidroDaysUntilDueSensor(IhidroBaseSensor):
 
     def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
-        self._attr_name = f"Zile Până la Scadență {self._uan}"
+        self._attr_name = "Zile Până la Scadență"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_days_until_due"
 
     @property
     def native_value(self) -> Optional[int]:
-        table = safe_get_table(self._data.get("current_bill"))
-        if table:
-            due_date_str = table[0].get("DueDate")
+        bill = get_current_bill_data(self._data.get("current_bill"))
+        if bill:
+            due_date_str = bill.get("duedate")
             if due_date_str:
                 due_dt = parse_date(due_date_str)
                 if due_dt:
@@ -1071,16 +1111,15 @@ class IhidroDaysUntilDueSensor(IhidroBaseSensor):
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
-        table = safe_get_table(self._data.get("current_bill"))
+        bill = get_current_bill_data(self._data.get("current_bill"))
         attrs: Dict[str, Any] = {
             ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
         }
-        if table:
-            bill = table[0]
-            due_date_str = bill.get("DueDate")
+        if bill:
+            due_date_str = bill.get("duedate")
             attrs[ATTR_DUE_DATE] = format_date_ro(due_date_str)
-            attrs[ATTR_AMOUNT] = bill.get("Amount")
-            attrs["bill_number"] = bill.get("BillNumber")
+            attrs[ATTR_AMOUNT] = bill.get("rembalance") or bill.get("billamount")
+            attrs["invoice_number"] = bill.get("invoicenumber")
             # Stare derivată
             days = self.native_value
             if days is not None:
@@ -1124,14 +1163,15 @@ class IhidroTarifRealSensor(IhidroBaseSensor):
 
     def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
-        self._attr_name = f"Tarif Real {self._uan}"
+        self._attr_name = "Tarif Real"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_tarif_real"
 
     def _compute_tariffs(self) -> list:
         """Calculează tariful per kWh din fiecare factură.
 
-        Folosim bill_history (Amount + Consumption per factură).
-        Dacă bill_history nu are Consumption, fallback pe usage_history.
+        API-ul Hidroelectrica NU returnează câmpul Consumption în bill_history.
+        Derivăm consumul din meter_read_history (delta Index între citiri consecutive)
+        și asociem cu sumele din bill_history.
 
         Returns:
             Lista de dict-uri [{month, year, tariff, amount, consumption}, ...]
@@ -1139,40 +1179,67 @@ class IhidroTarifRealSensor(IhidroBaseSensor):
         """
         tariffs = []
 
-        # Sursa primară: bill_history (are Amount + Consumption)
-        bill_table = safe_get_table(self._data.get("bill_history"))
-        if bill_table:
-            for bill in bill_table:
-                amount = safe_float(bill.get("Amount"))
-                consumption = safe_float(bill.get("Consumption"))
-                if consumption > 0 and amount > 0:
-                    tariffs.append(
-                        {
-                            "month": bill.get("BillDate") or bill.get("Month"),
-                            "year": bill.get("Year"),
-                            "tariff": round(amount / consumption, 4),
-                            "amount": amount,
-                            "consumption": consumption,
-                        }
-                    )
+        # Obținem facturile și citirile contorului
+        bills = get_bill_history_list(self._data.get("bill_history"))
+        readings = get_data_list(self._data.get("meter_read_history"))
 
-        # Dacă bill_history nu a dat rezultate, fallback pe usage_history
-        if not tariffs:
-            usage_table = safe_get_table(self._data.get("usage_history"))
-            if usage_table:
-                for item in usage_table:
-                    consumption = safe_float(item.get("Consumption"))
-                    cost = safe_float(item.get("Cost"))
-                    if consumption > 0 and cost > 0:
-                        tariffs.append(
-                            {
-                                "month": item.get("Month"),
-                                "year": item.get("Year"),
-                                "tariff": round(cost / consumption, 4),
-                                "amount": cost,
-                                "consumption": consumption,
-                            }
-                        )
+        # Filtrăm citirile pe registrul de consum (1.8.0) și le sortăm descrescător
+        consumption_readings = []
+        for r in readings:
+            reg = r.get("Registers", "") or r.get("Register", "")
+            if reg == "1.8.0":
+                idx = safe_float(r.get("Index") or r.get("MeterReading"))
+                dt = parse_date(r.get("Date") or r.get("ReadingDate"))
+                if idx > 0 and dt:
+                    consumption_readings.append({"index": idx, "date": dt})
+
+        # Sortăm descrescător (cel mai recent primul)
+        consumption_readings.sort(key=lambda x: x["date"], reverse=True)
+
+        # Calculăm delta între citiri consecutive = consum per perioadă
+        consumption_deltas = []
+        for i in range(len(consumption_readings) - 1):
+            current = consumption_readings[i]
+            previous = consumption_readings[i + 1]
+            delta = current["index"] - previous["index"]
+            if delta > 0:
+                consumption_deltas.append({
+                    "consumption": delta,
+                    "date": current["date"],
+                    "period_start": previous["date"],
+                })
+
+        # Asociem facturile cu deltas de consum pe baza datei
+        for bill in bills:
+            amount = safe_float(bill.get("amount") or bill.get("Amount"))
+            if amount <= 0:
+                continue
+
+            bill_date_str = bill.get("invoiceDate") or bill.get("BillDate")
+            bill_date = parse_date(bill_date_str) if bill_date_str else None
+
+            # Căutăm delta de consum cea mai apropiată de data facturii
+            matched_consumption = None
+            if bill_date and consumption_deltas:
+                best_match = None
+                best_diff = None
+                for delta in consumption_deltas:
+                    diff = abs((delta["date"] - bill_date).days)
+                    if best_diff is None or diff < best_diff:
+                        best_diff = diff
+                        best_match = delta
+                # Acceptăm dacă diferența este < 45 zile (ciclu factură)
+                if best_match and best_diff is not None and best_diff < 45:
+                    matched_consumption = best_match["consumption"]
+
+            if matched_consumption and matched_consumption > 0:
+                tariffs.append({
+                    "month": bill_date_str,
+                    "year": str(bill_date.year) if bill_date else None,
+                    "tariff": round(amount / matched_consumption, 4),
+                    "amount": amount,
+                    "consumption": matched_consumption,
+                })
 
         return tariffs
 
@@ -1289,7 +1356,7 @@ class IhidroEstimareFacturaSensor(IhidroBaseSensor):
 
     def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
-        self._attr_name = f"Estimare Factură {self._uan}"
+        self._attr_name = "Estimare Factură"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_estimare_factura"
 
     def _get_energy_sensor_id(self) -> Optional[str]:
@@ -1326,10 +1393,10 @@ class IhidroEstimareFacturaSensor(IhidroBaseSensor):
 
     def _get_last_bill_date(self) -> Optional[datetime]:
         """Obține data ultimei facturi emise."""
-        table = safe_get_table(self._data.get("bill_history"))
-        if table:
-            for bill in table:
-                date_str = bill.get("BillDate") or bill.get("Month")
+        bills = get_bill_history_list(self._data.get("bill_history"))
+        if bills:
+            for bill in bills:
+                date_str = bill.get("invoiceDate") or bill.get("BillDate")
                 if date_str:
                     dt = parse_date(date_str)
                     if dt:
@@ -1337,40 +1404,64 @@ class IhidroEstimareFacturaSensor(IhidroBaseSensor):
         return None
 
     def _get_recent_bills(self) -> list:
-        """Extrage facturile recente cu Amount + Consumption valide."""
+        """Extrage facturile recente cu Amount + Consumption valide.
+
+        bill_history nu are câmpul Consumption — derivăm consumul din
+        meter_read_history (delta Index între citiri consecutive pe 1.8.0).
+        """
+        bill_list = get_bill_history_list(self._data.get("bill_history"))
+        readings = get_data_list(self._data.get("meter_read_history"))
+
+        # Construim perechi de consum din citirile contorului
+        consumption_readings = []
+        for r in readings:
+            reg = r.get("Registers", "") or r.get("Register", "")
+            if reg == "1.8.0":
+                idx = safe_float(r.get("Index") or r.get("MeterReading"))
+                dt = parse_date(r.get("Date") or r.get("ReadingDate"))
+                if idx > 0 and dt:
+                    consumption_readings.append({"index": idx, "date": dt})
+        consumption_readings.sort(key=lambda x: x["date"], reverse=True)
+
+        consumption_deltas = []
+        for i in range(len(consumption_readings) - 1):
+            delta = consumption_readings[i]["index"] - consumption_readings[i + 1]["index"]
+            if delta > 0:
+                consumption_deltas.append({
+                    "consumption": delta,
+                    "date": consumption_readings[i]["date"],
+                })
+
         bills = []
-        table = safe_get_table(self._data.get("bill_history"))
-        if table:
-            for bill in table:
-                amount = safe_float(bill.get("Amount"))
-                consumption = safe_float(bill.get("Consumption"))
-                if consumption > 0 and amount > 0:
-                    bills.append(
-                        {
-                            "amount": amount,
-                            "consumption": consumption,
-                            "tariff": round(amount / consumption, 4),
-                            "month": bill.get("Month") or bill.get("BillDate"),
-                            "year": bill.get("Year"),
-                        }
-                    )
-        # Fallback pe usage_history
-        if not bills:
-            table = safe_get_table(self._data.get("usage_history"))
-            if table:
-                for item in table:
-                    consumption = safe_float(item.get("Consumption"))
-                    cost = safe_float(item.get("Cost"))
-                    if consumption > 0 and cost > 0:
-                        bills.append(
-                            {
-                                "amount": cost,
-                                "consumption": consumption,
-                                "tariff": round(cost / consumption, 4),
-                                "month": item.get("Month"),
-                                "year": item.get("Year"),
-                            }
-                        )
+        for bill in bill_list:
+            amount = safe_float(bill.get("amount") or bill.get("Amount"))
+            if amount <= 0:
+                continue
+
+            bill_date_str = bill.get("invoiceDate") or bill.get("BillDate")
+            bill_date = parse_date(bill_date_str) if bill_date_str else None
+
+            # Asociem cu delta de consum pe baza datei
+            matched_consumption = None
+            if bill_date and consumption_deltas:
+                best_match = None
+                best_diff = None
+                for delta in consumption_deltas:
+                    diff = abs((delta["date"] - bill_date).days)
+                    if best_diff is None or diff < best_diff:
+                        best_diff = diff
+                        best_match = delta
+                if best_match and best_diff is not None and best_diff < 45:
+                    matched_consumption = best_match["consumption"]
+
+            if matched_consumption and matched_consumption > 0:
+                bills.append({
+                    "amount": amount,
+                    "consumption": matched_consumption,
+                    "tariff": round(amount / matched_consumption, 4),
+                    "month": bill_date_str,
+                    "year": str(bill_date.year) if bill_date else None,
+                })
         return bills
 
     def _estimate_from_external_sensor(
@@ -1402,25 +1493,25 @@ class IhidroEstimareFacturaSensor(IhidroBaseSensor):
             return None
 
         # Obținem indexul contorului la ultima factură
-        # Din meter_read_history sau din bill_history
+        # Din meter_read_history
         last_meter_index = None
-        meter_table = safe_get_table(self._data.get("meter_read_history"))
-        if meter_table:
-            for reading in meter_table:
-                date_str = reading.get("ReadingDate") or reading.get("Date")
+        readings = get_data_list(self._data.get("meter_read_history"))
+        if readings:
+            for reading in readings:
+                date_str = reading.get("Date")
                 if date_str:
                     dt = parse_date(date_str)
                     if dt and abs((dt - last_bill_date).days) <= 5:
-                        last_meter_index = safe_float(reading.get("MeterReading"))
+                        last_meter_index = safe_float(reading.get("Index"))
                         if last_meter_index > 0:
                             break
                         last_meter_index = None
 
-        # Fallback: folosim ultimul index cunoscut din coordinator
+        # Fallback: folosim ultimul index cunoscut din cascading
         if last_meter_index is None:
-            meter_details = safe_get_table(self._data.get("meter_details"))
-            if meter_details:
-                last_meter_index = safe_float(meter_details[0].get("MeterReading"))
+            value, _src = get_meter_index_cascading(self._data)
+            if value is not None and value > 0:
+                last_meter_index = value
 
         if last_meter_index is None or last_meter_index <= 0:
             return None
@@ -1434,11 +1525,11 @@ class IhidroEstimareFacturaSensor(IhidroBaseSensor):
         # avem snapshot-ul la data facturii. Folosim consumul mediu zilnic
         # bazat pe indexul contorului.
 
-        # Indexul curent al contorului (din detalii contor)
+        # Indexul curent al contorului (cascading fallback)
         current_meter_index = None
-        meter_details = safe_get_table(self._data.get("meter_details"))
-        if meter_details:
-            current_meter_index = safe_float(meter_details[0].get("MeterReading"))
+        cur_value, _cur_src = get_meter_index_cascading(self._data)
+        if cur_value is not None and cur_value > 0:
+            current_meter_index = cur_value
 
         if current_meter_index is None or current_meter_index <= 0:
             return None
@@ -1619,11 +1710,15 @@ class IhidroAnomalieConsumSensor(IhidroBaseSensor):
 
     def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
-        self._attr_name = f"Anomalie Consum {self._uan}"
+        self._attr_name = "Anomalie Consum"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_anomalie_consum"
 
     def _analyze_consumption(self) -> Dict[str, Any]:
         """Analizează consumul și detectează anomalii.
+
+        Derivează consumul lunar din meter_read_history (diferențe de index
+        între citiri consecutive), deoarece bill_history nu conține un câmp
+        Consumption.
 
         Returns:
             Dict cu status, deviații, și detalii de analiză.
@@ -1633,25 +1728,36 @@ class IhidroAnomalieConsumSensor(IhidroBaseSensor):
             "alerts": [],
         }
 
-        # Colectăm date din bill_history
-        bill_table = safe_get_table(self._data.get("bill_history"))
-        if not bill_table:
-            # Fallback pe usage_history
-            bill_table = safe_get_table(self._data.get("usage_history"))
-
-        if not bill_table or len(bill_table) < 2:
+        # Derivăm consumul din meter_read_history (index deltas)
+        readings = get_data_list(self._data.get("meter_read_history"))
+        if not readings or len(readings) < 2:
             return result
 
-        # Extragem consumul per lună
+        # Sortăm citirile cronologic (cele mai recente primele)
+        dated_readings = []
+        for r in readings:
+            dt = parse_date(r.get("Date"))
+            idx = safe_float(r.get("Index"))
+            if dt and idx > 0:
+                dated_readings.append({"date": dt, "index": idx})
+
+        dated_readings.sort(key=lambda x: x["date"], reverse=True)
+
+        if len(dated_readings) < 2:
+            return result
+
+        # Calculăm consumul per interval (delta index între citiri consecutive)
         monthly_data = []
-        for item in bill_table:
-            consumption = safe_float(item.get("Consumption"))
-            if consumption > 0:
+        for i in range(len(dated_readings) - 1):
+            newer = dated_readings[i]
+            older = dated_readings[i + 1]
+            delta = newer["index"] - older["index"]
+            if delta >= 0:
                 monthly_data.append(
                     {
-                        "consumption": consumption,
-                        "month": item.get("Month") or item.get("BillDate"),
-                        "year": item.get("Year"),
+                        "consumption": delta,
+                        "month": newer["date"].strftime("%m/%Y"),
+                        "date": newer["date"],
                     }
                 )
 
@@ -1689,12 +1795,21 @@ class IhidroAnomalieConsumSensor(IhidroBaseSensor):
                     )
 
         # Analiză 2: Comparație Year-over-Year (aceeași lună anul trecut)
-        current_month = monthly_data[0].get("month")
+        # Căutăm un interval cu dată similară (~12 luni în urmă)
+        current_date = monthly_data[0].get("date")
+        current_month_num = current_date.month if current_date else None
         yoy_match = None
-        for item in monthly_data:
-            if item.get("month") == current_month and item is not monthly_data[0]:
-                yoy_match = item
-                break
+        if current_month_num and current_date:
+            for item in monthly_data[1:]:
+                item_date = item.get("date")
+                if item_date and item_date.month == current_month_num:
+                    # Verificăm ca diferența să fie ~12 luni (10-14)
+                    months_diff = (current_date.year - item_date.year) * 12 + (
+                        current_date.month - item_date.month
+                    )
+                    if 10 <= months_diff <= 14:
+                        yoy_match = item
+                        break
 
         if yoy_match:
             yoy_consumption = yoy_match["consumption"]

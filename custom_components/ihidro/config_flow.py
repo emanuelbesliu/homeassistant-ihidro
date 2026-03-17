@@ -46,6 +46,100 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def _validate_energy_sensor(
+    hass: HomeAssistant, entity_id: str
+) -> Optional[str]:
+    """Validează senzorul de energie extern selectat.
+
+    Verificări:
+    1. Entitatea există în HA
+    2. Are device_class = energy
+    3. Are state_class = total_increasing (contor cumulativ)
+    4. Starea nu este unavailable/unknown
+    5. Starea este un număr valid
+    6. Unitatea de măsură este kWh sau Wh (nu W, kW etc.)
+
+    Returnează None dacă totul e OK, sau o cheie de eroare din strings.json.
+    """
+    # 1. Entitatea există?
+    state_obj = hass.states.get(entity_id)
+    if state_obj is None:
+        _LOGGER.warning(
+            "Senzor energie extern '%s' nu a fost găsit în HA", entity_id
+        )
+        return "energy_sensor_not_found"
+
+    attributes = state_obj.attributes
+
+    # 2. device_class trebuie să fie "energy"
+    device_class = attributes.get("device_class", "")
+    if device_class != SensorDeviceClass.ENERGY:
+        _LOGGER.warning(
+            "Senzor '%s' are device_class='%s', așteptat 'energy'",
+            entity_id,
+            device_class,
+        )
+        return "energy_sensor_wrong_class"
+
+    # 3. state_class trebuie să fie "total_increasing" (contor cumulativ kWh)
+    state_class = attributes.get("state_class", "")
+    if state_class not in (
+        SensorStateClass.TOTAL_INCREASING,
+        SensorStateClass.TOTAL,
+        "total_increasing",
+        "total",
+    ):
+        _LOGGER.warning(
+            "Senzor '%s' are state_class='%s', așteptat 'total_increasing' sau 'total' "
+            "(contor cumulativ de energie)",
+            entity_id,
+            state_class,
+        )
+        return "energy_sensor_not_cumulative"
+
+    # 4. Unitatea trebuie să fie kWh sau Wh
+    unit = attributes.get("unit_of_measurement", "")
+    if unit not in ("kWh", "Wh"):
+        _LOGGER.warning(
+            "Senzor '%s' are unitate='%s', așteptat 'kWh' sau 'Wh'",
+            entity_id,
+            unit,
+        )
+        return "energy_sensor_wrong_unit"
+
+    # 5. Starea nu este unavailable/unknown
+    state_val = state_obj.state
+    if state_val in ("unavailable", "unknown", None):
+        _LOGGER.warning(
+            "Senzor '%s' are starea '%s' — nu este disponibil momentan",
+            entity_id,
+            state_val,
+        )
+        return "energy_sensor_unavailable"
+
+    # 6. Starea trebuie să fie un număr valid
+    try:
+        float(state_val)
+    except (ValueError, TypeError):
+        _LOGGER.warning(
+            "Senzor '%s' are starea '%s' — nu este un număr valid",
+            entity_id,
+            state_val,
+        )
+        return "energy_sensor_not_numeric"
+
+    _LOGGER.debug(
+        "Senzor energie extern '%s' validat cu succes: state=%s, unit=%s, "
+        "state_class=%s, device_class=%s",
+        entity_id,
+        state_val,
+        unit,
+        state_class,
+        device_class,
+    )
+    return None
+
+
 class IhidroConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Config flow pentru iHidro."""
 
@@ -57,6 +151,7 @@ class IhidroConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._password: Optional[str] = None
         self._update_interval: int = DEFAULT_UPDATE_INTERVAL
         self._accounts: List[Dict[str, Any]] = []
+        self._selected_accounts: List[str] = []
         self._reauth_entry: Optional[config_entries.ConfigEntry] = None
 
     async def async_step_user(
@@ -89,10 +184,11 @@ class IhidroConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     # Mai multe conturi — mergi la selecție
                     return await self.async_step_select_accounts()
                 else:
-                    # Un singur cont — creăm direct intrarea
-                    return await self._create_entry(
-                        selected=[self._accounts[0]["UtilityAccountNumber"]]
-                    )
+                    # Un singur cont — mergi la configurare opțiuni
+                    self._selected_accounts = [
+                        self._accounts[0]["UtilityAccountNumber"]
+                    ]
+                    return await self.async_step_configure_options()
 
             except IhidroAuthError:
                 errors["base"] = "invalid_auth"
@@ -133,7 +229,8 @@ class IhidroConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 selected = [
                     acc["UtilityAccountNumber"] for acc in self._accounts
                 ]
-            return await self._create_entry(selected=selected)
+            self._selected_accounts = selected
+            return await self.async_step_configure_options()
 
         # Construim opțiunile de selecție folosind SelectSelector (HA native)
         account_options = [
@@ -162,6 +259,67 @@ class IhidroConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="select_accounts",
             data_schema=data_schema,
+        )
+
+    # =========================================================================
+    # Pasul 3 (opțional): Configurare opțiuni — senzor energie extern
+    # =========================================================================
+
+    async def async_step_configure_options(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> FlowResult:
+        """Pasul 3: Configurare opțiuni (senzor energie extern, interval).
+
+        Acest pas este OPȚIONAL — utilizatorul poate lăsa câmpul gol
+        și apăsa Next. Senzorul de energie extern poate fi modificat
+        ulterior din Options flow.
+        """
+        errors: Dict[str, str] = {}
+
+        if user_input is not None:
+            energy_sensor_id = user_input.get(CONF_ENERGY_SENSOR, "")
+
+            if energy_sensor_id:
+                # Validăm senzorul de energie dacă a fost selectat
+                validation_error = _validate_energy_sensor(
+                    self.hass, energy_sensor_id
+                )
+                if validation_error:
+                    errors["energy_sensor"] = validation_error
+                else:
+                    # Totul OK — creăm intrarea cu opțiunile configurate
+                    return await self._create_entry(
+                        selected=self._selected_accounts,
+                        options={
+                            CONF_ENERGY_SENSOR: energy_sensor_id,
+                            CONF_UPDATE_INTERVAL: self._update_interval,
+                        },
+                    )
+            else:
+                # Niciun senzor selectat (OK — este opțional)
+                return await self._create_entry(
+                    selected=self._selected_accounts,
+                    options={
+                        CONF_ENERGY_SENSOR: "",
+                        CONF_UPDATE_INTERVAL: self._update_interval,
+                    },
+                )
+
+        data_schema = vol.Schema(
+            {
+                vol.Optional(CONF_ENERGY_SENSOR, default=""): EntitySelector(
+                    EntitySelectorConfig(
+                        domain="sensor",
+                        device_class=SensorDeviceClass.ENERGY,
+                    )
+                ),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="configure_options",
+            data_schema=data_schema,
+            errors=errors,
         )
 
     # =========================================================================
@@ -242,11 +400,26 @@ class IhidroConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     # Crearea config entry
     # =========================================================================
 
-    async def _create_entry(self, selected: List[str]) -> FlowResult:
-        """Creăm config entry cu conturile selectate."""
+    async def _create_entry(
+        self,
+        selected: List[str],
+        options: Optional[Dict[str, Any]] = None,
+    ) -> FlowResult:
+        """Creăm config entry cu conturile selectate.
+
+        Args:
+            selected: Lista de UAN-uri selectate.
+            options: Opțiuni suplimentare (energy_sensor, update_interval).
+                     Stocate în entry.options pentru a fi editabile ulterior.
+        """
         # Verificăm dacă nu există deja o intrare cu același username
         await self.async_set_unique_id(self._username)
         self._abort_if_unique_id_configured()
+
+        entry_options = options or {
+            CONF_ENERGY_SENSOR: "",
+            CONF_UPDATE_INTERVAL: self._update_interval,
+        }
 
         return self.async_create_entry(
             title=f"iHidro ({self._username})",
@@ -256,6 +429,7 @@ class IhidroConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_UPDATE_INTERVAL: self._update_interval,
                 CONF_SELECTED_ACCOUNTS: selected,
             },
+            options=entry_options,
         )
 
     @staticmethod
@@ -280,7 +454,9 @@ class IhidroOptionsFlowHandler(config_entries.OptionsFlow):
             # Validăm senzorul de energie extern dacă a fost selectat
             energy_sensor_id = user_input.get(CONF_ENERGY_SENSOR, "")
             if energy_sensor_id:
-                validation_error = self._validate_energy_sensor(energy_sensor_id)
+                validation_error = _validate_energy_sensor(
+                    self.hass, energy_sensor_id
+                )
                 if validation_error:
                     errors["energy_sensor"] = validation_error
                 else:
@@ -327,95 +503,3 @@ class IhidroOptionsFlowHandler(config_entries.OptionsFlow):
             errors=errors,
         )
 
-    def _validate_energy_sensor(self, entity_id: str) -> Optional[str]:
-        """Validează senzorul de energie extern selectat.
-
-        Verificări:
-        1. Entitatea există în HA
-        2. Are device_class = energy
-        3. Are state_class = total_increasing (contor cumulativ)
-        4. Starea nu este unavailable/unknown
-        5. Starea este un număr valid
-        6. Unitatea de măsură este kWh sau Wh (nu W, kW etc.)
-
-        Returnează None dacă totul e OK, sau o cheie de eroare din strings.json.
-        """
-        hass = self.hass
-
-        # 1. Entitatea există?
-        state_obj = hass.states.get(entity_id)
-        if state_obj is None:
-            _LOGGER.warning(
-                "Senzor energie extern '%s' nu a fost găsit în HA", entity_id
-            )
-            return "energy_sensor_not_found"
-
-        attributes = state_obj.attributes
-
-        # 2. device_class trebuie să fie "energy"
-        device_class = attributes.get("device_class", "")
-        if device_class != SensorDeviceClass.ENERGY:
-            _LOGGER.warning(
-                "Senzor '%s' are device_class='%s', așteptat 'energy'",
-                entity_id,
-                device_class,
-            )
-            return "energy_sensor_wrong_class"
-
-        # 3. state_class trebuie să fie "total_increasing" (contor cumulativ kWh)
-        state_class = attributes.get("state_class", "")
-        if state_class not in (
-            SensorStateClass.TOTAL_INCREASING,
-            SensorStateClass.TOTAL,
-            "total_increasing",
-            "total",
-        ):
-            _LOGGER.warning(
-                "Senzor '%s' are state_class='%s', așteptat 'total_increasing' sau 'total' "
-                "(contor cumulativ de energie)",
-                entity_id,
-                state_class,
-            )
-            return "energy_sensor_not_cumulative"
-
-        # 4. Unitatea trebuie să fie kWh sau Wh
-        unit = attributes.get("unit_of_measurement", "")
-        if unit not in ("kWh", "Wh"):
-            _LOGGER.warning(
-                "Senzor '%s' are unitate='%s', așteptat 'kWh' sau 'Wh'",
-                entity_id,
-                unit,
-            )
-            return "energy_sensor_wrong_unit"
-
-        # 5. Starea nu este unavailable/unknown
-        state_val = state_obj.state
-        if state_val in ("unavailable", "unknown", None):
-            _LOGGER.warning(
-                "Senzor '%s' are starea '%s' — nu este disponibil momentan",
-                entity_id,
-                state_val,
-            )
-            return "energy_sensor_unavailable"
-
-        # 6. Starea trebuie să fie un număr valid
-        try:
-            float(state_val)
-        except (ValueError, TypeError):
-            _LOGGER.warning(
-                "Senzor '%s' are starea '%s' — nu este un număr valid",
-                entity_id,
-                state_val,
-            )
-            return "energy_sensor_not_numeric"
-
-        _LOGGER.debug(
-            "Senzor energie extern '%s' validat cu succes: state=%s, unit=%s, "
-            "state_class=%s, device_class=%s",
-            entity_id,
-            state_val,
-            unit,
-            state_class,
-            device_class,
-        )
-        return None

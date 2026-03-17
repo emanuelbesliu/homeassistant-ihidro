@@ -43,11 +43,12 @@ from .const import (
     EVENT_OVERDUE_BILL,
 )
 from .helpers import (
-    safe_get_table,
     safe_float,
     get_active_counter_series,
     is_reading_window_open,
     parse_date,
+    get_meter_window_info,
+    get_current_bill_data,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -346,13 +347,12 @@ class IhidroAccountCoordinator(DataUpdateCoordinator):
         if self._prev_window_open is not None:
             if current_window_open and not self._prev_window_open:
                 # Fereastra tocmai s-a deschis
-                window_table = safe_get_table(window_data)
+                window = get_meter_window_info(window_data)
                 ev_data = {**event_data_base}
                 window_end_str = ""
-                if window_table:
-                    w = window_table[0]
-                    ev_data["window_start"] = w.get("WindowStartDate") or w.get("StartDate")
-                    ev_data["window_end"] = w.get("WindowEndDate") or w.get("EndDate")
+                if window:
+                    ev_data["window_start"] = window.get("NextMonthOpeningDate") or window.get("OpeningDate")
+                    ev_data["window_end"] = window.get("NextMonthClosingDate") or window.get("ClosingDate")
                     window_end_str = ev_data.get("window_end", "")
                 self.hass.bus.async_fire(EVENT_READING_WINDOW_OPENED, ev_data)
                 # Persistent notification
@@ -393,18 +393,18 @@ class IhidroAccountCoordinator(DataUpdateCoordinator):
         self._prev_window_open = current_window_open
 
         # 2. Factură nouă detectată
-        bill_table = safe_get_table(data.get("current_bill"))
+        bill = get_current_bill_data(data.get("current_bill"))
         current_bill_number = None
-        if bill_table:
-            current_bill_number = bill_table[0].get("BillNumber")
+        if bill:
+            current_bill_number = bill.get("invoicenumber")
 
         if (
             self._prev_bill_number is not None
             and current_bill_number
             and current_bill_number != self._prev_bill_number
         ):
-            bill_amount = bill_table[0].get("Amount") if bill_table else None
-            bill_due_date = bill_table[0].get("DueDate") if bill_table else None
+            bill_amount = bill.get("billamount") if bill else None
+            bill_due_date = bill.get("duedate") if bill else None
             ev_data = {
                 **event_data_base,
                 "bill_number": current_bill_number,

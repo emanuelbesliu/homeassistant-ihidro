@@ -34,12 +34,13 @@ from .const import (
 )
 from .coordinator import IhidroAccountCoordinator
 from .helpers import (
-    safe_get_table,
     safe_float,
     format_date_ro,
     format_ron,
     is_reading_window_open,
     parse_date,
+    get_current_bill_data,
+    get_meter_window_info,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -126,27 +127,28 @@ class IhidroSoldFacturaBinarySensor(IhidroBaseBinarySensor):
 
     def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
-        self._attr_name = f"Sold Factură {self._uan}"
+        self._attr_name = "Sold Factură"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_sold_factura"
 
     @property
     def is_on(self) -> Optional[bool]:
         """True = factură plătită (sold ≤ 0), False = neplătit (sold > 0)."""
-        table = safe_get_table(self._data.get("current_bill"))
-        if not table:
+        bill = get_current_bill_data(self._data.get("current_bill"))
+        if not bill:
             return None
-        amount = safe_float(table[0].get("Amount"))
+        amount = safe_float(bill.get("rembalance") or bill.get("billamount"))
         return amount <= 0
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
-        table = safe_get_table(self._data.get("current_bill"))
+        bill = get_current_bill_data(self._data.get("current_bill"))
         attrs: Dict[str, Any] = {
             ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
         }
-        if table:
-            amount = safe_float(table[0].get("Amount"))
-            attrs[ATTR_AMOUNT] = table[0].get("Amount")
+        if bill:
+            raw_amount = bill.get("rembalance") or bill.get("billamount")
+            amount = safe_float(raw_amount)
+            attrs[ATTR_AMOUNT] = raw_amount
             attrs["amount_formatat"] = format_ron(amount)
             if amount < 0:
                 attrs["status_detaliat"] = "Credit"
@@ -174,22 +176,21 @@ class IhidroFacturaRestantaBinarySensor(IhidroBaseBinarySensor):
 
     def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
-        self._attr_name = f"Factură Restantă {self._uan}"
+        self._attr_name = "Factură Restantă"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_factura_restanta"
 
     @property
     def is_on(self) -> Optional[bool]:
         """True = factură restantă, False = ok."""
-        table = safe_get_table(self._data.get("current_bill"))
-        if not table:
+        bill = get_current_bill_data(self._data.get("current_bill"))
+        if not bill:
             return None
 
-        bill = table[0]
-        amount = safe_float(bill.get("Amount"))
+        amount = safe_float(bill.get("rembalance") or bill.get("billamount"))
         if amount <= 0:
             return False
 
-        due_date_str = bill.get("DueDate")
+        due_date_str = bill.get("duedate")
         if not due_date_str:
             return False
 
@@ -200,19 +201,19 @@ class IhidroFacturaRestantaBinarySensor(IhidroBaseBinarySensor):
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
-        table = safe_get_table(self._data.get("current_bill"))
+        bill = get_current_bill_data(self._data.get("current_bill"))
         attrs: Dict[str, Any] = {
             ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
         }
-        if table:
-            bill = table[0]
-            amount = safe_float(bill.get("Amount"))
-            attrs[ATTR_AMOUNT] = bill.get("Amount")
+        if bill:
+            raw_amount = bill.get("rembalance") or bill.get("billamount")
+            amount = safe_float(raw_amount)
+            attrs[ATTR_AMOUNT] = raw_amount
             attrs["amount_formatat"] = format_ron(amount)
-            attrs[ATTR_DUE_DATE] = format_date_ro(bill.get("DueDate"))
+            attrs[ATTR_DUE_DATE] = format_date_ro(bill.get("duedate"))
 
             # Zile restante
-            due_dt = parse_date(bill.get("DueDate"))
+            due_dt = parse_date(bill.get("duedate"))
             if due_dt and amount > 0:
                 delta = datetime.now() - due_dt
                 if delta.days > 0:
@@ -237,7 +238,7 @@ class IhidroCitirePermisaBinarySensor(IhidroBaseBinarySensor):
 
     def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
-        self._attr_name = f"Citire Permisă {self._uan}"
+        self._attr_name = "Citire Permisă"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_citire_permisa"
 
     @property
@@ -251,16 +252,15 @@ class IhidroCitirePermisaBinarySensor(IhidroBaseBinarySensor):
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
         window_data = self._data.get("meter_window")
-        table = safe_get_table(window_data)
+        window = get_meter_window_info(window_data)
         attrs: Dict[str, Any] = {
             ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
         }
-        if table:
-            window = table[0]
+        if window:
             attrs["window_start"] = format_date_ro(
-                window.get("WindowStartDate") or window.get("StartDate")
+                window.get("NextMonthOpeningDate") or window.get("OpeningDate")
             )
             attrs["window_end"] = format_date_ro(
-                window.get("WindowEndDate") or window.get("EndDate")
+                window.get("NextMonthClosingDate") or window.get("ClosingDate")
             )
         return attrs

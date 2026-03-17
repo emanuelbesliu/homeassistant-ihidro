@@ -24,13 +24,26 @@
           "username": "Nume utilizator (email sau cod client)",
           "password": "Parolă"
         }
+      },
+      "configure_options": {
+        "title": "Senzor Energie (Opțional)",
+        "description": "Opțional, selectați un senzor de energie extern (ex. Shelly EM, priză inteligentă) pentru estimări mai precise ale facturii și transmiterea automată a indexului. Puteți sări peste acest pas și configura ulterior din opțiunile integrării.",
+        "data": {
+          "energy_sensor": "Senzor energie extern (opțional)"
+        }
       }
     },
     "error": {
       "invalid_auth": "Date de autentificare invalide. Verificați username-ul și parola.",
       "cannot_connect": "Nu se poate conecta la serverul iHidro. Verificați conexiunea la internet.",
       "no_accounts": "Nu s-au găsit conturi (POD-uri) pentru acest utilizator.",
-      "unknown": "Eroare necunoscută. Verificați logurile Home Assistant."
+      "unknown": "Eroare necunoscută. Verificați logurile Home Assistant.",
+      "energy_sensor_not_found": "Senzorul de energie selectat nu a fost găsit în Home Assistant.",
+      "energy_sensor_wrong_class": "Senzorul selectat nu este un senzor de energie (device_class trebuie să fie 'energy').",
+      "energy_sensor_not_cumulative": "Senzorul selectat nu este un contor cumulativ de energie (state_class trebuie să fie 'total_increasing' sau 'total'). Selectați un senzor care raportează totalul kWh consumați, nu puterea instantanee.",
+      "energy_sensor_wrong_unit": "Senzorul selectat nu raportează energie în kWh sau Wh. Senzorii care raportează W sau kW (putere) nu sunt suportați — selectați un senzor de energie (kWh).",
+      "energy_sensor_unavailable": "Senzorul de energie selectat este momentan indisponibil. Asigurați-vă că dispozitivul este online și încercați din nou.",
+      "energy_sensor_not_numeric": "Senzorul de energie selectat are o stare non-numerică. Asigurați-vă că senzorul funcționează corect."
     },
     "abort": {
       "already_configured": "Acest cont iHidro este deja configurat.",
