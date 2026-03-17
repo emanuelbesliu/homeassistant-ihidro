@@ -115,10 +115,8 @@ async def async_setup_entry(
                 IhidroAnomalieConsumSensor(coordinator, entry),
                 # Senzor citire permisă (Da/Nu)
                 IhidroCitirePermisaSensor(coordinator, entry),
-                # Senzor sold factură (Plătit/Neplătit/Credit)
+                # Senzor sold factură (Plătit/Neplătit/Restant/Credit)
                 IhidroSoldFacturaSensor(coordinator, entry),
-                # Senzor factură restantă (Da/Nu) — migrat din binary_sensor.py
-                IhidroFacturaRestantaSensor(coordinator, entry),
             ]
         )
 
@@ -831,7 +829,10 @@ class IhidroConsumAnualSensor(IhidroBaseSensor):
             # Lista e ordonată cronologic ASCENDENT (cel mai vechi primul)
             # readings[-1] = cel mai recent, readings[0] = cel mai vechi
             consumption = readings[-1] - readings[0]
-            return round(consumption, 2) if consumption > 0 else None
+            return round(consumption, 2) if consumption > 0 else 0.0
+        elif len(readings) == 1:
+            # O singură citire — nu putem calcula delta, dar avem date
+            return 0.0
 
         return None
 
@@ -1074,17 +1075,23 @@ class IhidroCompensareANRESensor(IhidroBaseSensor):
 
     @property
     def native_value(self) -> Optional[float]:
-        """Calculează totalul compensărilor ANRE din separarea plăților pe canal."""
+        """Calculează totalul compensărilor ANRE din separarea plăților pe canal.
+
+        Returnează 0.0 dacă nu există compensări (prosumator fără plăți ANRE încă),
+        nu None — astfel senzorul afișează "0,00 RON" în loc de "Unknown".
+        Returnează None doar dacă bill_history nu e disponibil (eroare API).
+        """
+        bill_history = self._data.get("bill_history")
+        if not bill_history:
+            return None
+
         payments = self._get_payments()
         _, anre_payments = split_payments_by_channel(payments)
-
-        if not anre_payments:
-            return None
 
         total = 0.0
         for payment in anre_payments:
             total += safe_float(payment.get("amount") or payment.get("Amount"))
-        return round(total, 2) if total != 0 else None
+        return round(total, 2)
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
@@ -1307,6 +1314,9 @@ class IhidroGenerationSensor(IhidroBaseSensor):
     Doar pentru prosumatori — coexistă cu IhidroProductieProsumatorSensor
     (care raportează indexul contorului de producție din meter_read_history,
     pe când acesta raportează consumul/producția efectivă din usage data).
+
+    Fallback: dacă tentative data nu e disponibil (non-AMI), calculăm
+    delta de producție din ultimele 2 citiri _P din meter_read_history.
     """
 
     _attr_device_class = SensorDeviceClass.ENERGY
@@ -1319,13 +1329,44 @@ class IhidroGenerationSensor(IhidroBaseSensor):
         self._attr_name = "Generare Energie"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_generation"
 
+    def _get_production_readings(self) -> List[float]:
+        """Extrage citirile de producție (_P) din meter_read_history (ordine ascendentă)."""
+        history = get_data_list(self._data.get("meter_read_history"))
+        readings = []
+        for entry_item in history:
+            register = entry_item.get("Registers", "") or entry_item.get("Register", "")
+            if "_P" in str(register).upper():
+                idx = safe_float(entry_item.get("Index") or entry_item.get("MeterReading"))
+                if idx > 0:
+                    readings.append(idx)
+        return readings
+
     @property
     def native_value(self) -> Optional[float]:
+        # Sursa 1: tentative data din generation_data (AMI meters)
         tentative = get_tentative_data(self._data.get("generation_data"))
         if tentative:
             so_far = safe_float(tentative.get("SoFar"))
             if so_far > 0:
                 return so_far
+
+        # Fallback: delta între ultimele 2 citiri _P din meter_read_history
+        readings = self._get_production_readings()
+        if len(readings) >= 2:
+            # Lista ascendentă: [-1] = cea mai recentă, [-2] = penultima
+            delta = readings[-1] - readings[-2]
+            if delta > 0:
+                return round(delta, 2)
+            # Regularizare (index scăzut) — căutăm o pereche pozitivă
+            for i in range(len(readings) - 1, 0, -1):
+                d = readings[i] - readings[i - 1]
+                if d > 0:
+                    return round(d, 2)
+            return 0.0
+        elif len(readings) == 1:
+            # O singură citire — nu putem calcula delta
+            return 0.0
+
         return None
 
     @property
@@ -1346,6 +1387,15 @@ class IhidroGenerationSensor(IhidroBaseSensor):
             attrs["average_kwh"] = format_number_ro(average) + " kWh" if average > 0 else None
             attrs["highest_kwh"] = format_number_ro(highest) + " kWh" if highest > 0 else None
             attrs["usage_cycle"] = tentative.get("UsageCycle")
+            attrs["data_source"] = "generation_tentative"
+        else:
+            # Fallback info
+            readings = self._get_production_readings()
+            attrs["data_source"] = "meter_read_history_delta"
+            attrs["production_readings_count"] = len(readings)
+            if len(readings) >= 2:
+                attrs["latest_index"] = format_number_ro(readings[-1]) + " kWh"
+                attrs["previous_index"] = format_number_ro(readings[-2]) + " kWh"
         return attrs
 
 
@@ -1361,6 +1411,9 @@ class IhidroNetUsageSensor(IhidroBaseSensor):
     Esențial pentru calcularea ROI-ului panourilor solare.
 
     Folosim SensorStateClass.MEASUREMENT deoarece valorile pot fi negative.
+
+    Fallback: dacă tentative data nu e disponibil (non-AMI), calculăm
+    net = delta_consum - delta_productie din ultimele 2 citiri din meter_read_history.
     """
 
     _attr_device_class = SensorDeviceClass.ENERGY
@@ -1373,13 +1426,59 @@ class IhidroNetUsageSensor(IhidroBaseSensor):
         self._attr_name = "Consum Net"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_net_usage"
 
+    def _get_register_readings(self, is_production: bool) -> List[float]:
+        """Extrage citirile din meter_read_history pentru un tip de registru.
+
+        Args:
+            is_production: True pentru _P (producție), False pentru consum (non-_P).
+        """
+        history = get_data_list(self._data.get("meter_read_history"))
+        readings = []
+        for entry_item in history:
+            register = entry_item.get("Registers", "") or entry_item.get("Register", "")
+            has_p = "_P" in str(register).upper()
+            if is_production == has_p:
+                idx = safe_float(entry_item.get("Index") or entry_item.get("MeterReading"))
+                if idx > 0:
+                    readings.append(idx)
+        return readings
+
+    def _compute_delta(self, readings: List[float]) -> Optional[float]:
+        """Calculează delta pozitivă între ultimele 2 citiri, cu fallback pe regularizare."""
+        if len(readings) < 2:
+            return 0.0 if len(readings) == 1 else None
+        delta = readings[-1] - readings[-2]
+        if delta >= 0:
+            return round(delta, 2)
+        # Regularizare — caută prima pereche pozitivă
+        for i in range(len(readings) - 1, 0, -1):
+            d = readings[i] - readings[i - 1]
+            if d > 0:
+                return round(d, 2)
+        return 0.0
+
     @property
     def native_value(self) -> Optional[float]:
+        # Sursa 1: tentative data din net_usage API (AMI meters)
         tentative = get_tentative_data(self._data.get("net_usage"))
         if tentative:
             so_far = safe_float(tentative.get("SoFar"))
             # Net usage poate fi 0 sau negativ (surplus)
             return so_far
+
+        # Fallback: net = delta_consum - delta_productie din meter_read_history
+        consumption_readings = self._get_register_readings(is_production=False)
+        production_readings = self._get_register_readings(is_production=True)
+
+        delta_consumption = self._compute_delta(consumption_readings)
+        delta_production = self._compute_delta(production_readings)
+
+        if delta_consumption is not None and delta_production is not None:
+            return round(delta_consumption - delta_production, 2)
+        elif delta_consumption is not None:
+            # Avem consum dar nu producție
+            return delta_consumption
+
         return None
 
     @property
@@ -1400,6 +1499,27 @@ class IhidroNetUsageSensor(IhidroBaseSensor):
             attrs["usage_cycle"] = tentative.get("UsageCycle")
             attrs["is_surplus"] = so_far < 0
             attrs["is_ami"] = tentative.get("IsOnlyAMI")
+            attrs["data_source"] = "net_usage_tentative"
+        else:
+            # Fallback info
+            consumption_readings = self._get_register_readings(is_production=False)
+            production_readings = self._get_register_readings(is_production=True)
+            delta_c = self._compute_delta(consumption_readings)
+            delta_p = self._compute_delta(production_readings)
+            attrs["data_source"] = "meter_read_history_delta"
+            attrs["consumption_readings_count"] = len(consumption_readings)
+            attrs["production_readings_count"] = len(production_readings)
+            if delta_c is not None:
+                attrs["delta_consumption_kwh"] = format_number_ro(delta_c) + " kWh"
+            if delta_p is not None:
+                attrs["delta_production_kwh"] = format_number_ro(delta_p) + " kWh"
+            net = (
+                round(delta_c - delta_p, 2)
+                if delta_c is not None and delta_p is not None
+                else None
+            )
+            if net is not None:
+                attrs["is_surplus"] = net < 0
         return attrs
 
 
@@ -2308,10 +2428,15 @@ class IhidroCitirePermisaSensor(IhidroBaseSensor):
 class IhidroSoldFacturaSensor(IhidroBaseSensor):
     """Senzor text: Starea plății facturii curente.
 
-    Afișează starea clară în română:
+    Afișează starea clară în română (4 stări):
     - "Plătit" — sold = 0
-    - "Neplătit" — sold > 0
+    - "Neplătit" — sold > 0, dar scadența nu a trecut
+    - "Restant" — sold > 0 ȘI scadența depășită
     - "Credit" — sold < 0 (supraplatit)
+
+    Consolidează logica din fostul Factură Restantă (Da/Nu) într-un singur
+    senzor. Starea "Restant" poate fi folosită ca trigger în automatizări
+    la fel de ușor ca vechiul "Da"/"Nu".
 
     Migrat din IhidroSoldFacturaBinarySensor (care afișa doar "On"/"Off").
     Păstrează același unique_id pentru a nu pierde istoricul.
@@ -2324,9 +2449,21 @@ class IhidroSoldFacturaSensor(IhidroBaseSensor):
         self._attr_name = "Sold Factură"
         self._attr_unique_id = f"{entry.entry_id}_{self._uan}_sold_factura"
 
+    def _is_overdue(self, bill: Dict[str, Any], amount: float) -> bool:
+        """Verifică dacă factura este restantă (sold > 0 și scadența depășită)."""
+        if amount <= 0:
+            return False
+        due_date_str = bill.get("duedate")
+        if not due_date_str:
+            return False
+        due_dt = parse_date(due_date_str)
+        if due_dt and datetime.now().date() > due_dt.date():
+            return True
+        return False
+
     @property
     def native_value(self) -> Optional[str]:
-        """Returnează 'Plătit', 'Neplătit' sau 'Credit'."""
+        """Returnează 'Plătit', 'Neplătit', 'Restant' sau 'Credit'."""
         bill = get_current_bill_data(self._data.get("current_bill"))
         if not bill:
             return None
@@ -2335,6 +2472,8 @@ class IhidroSoldFacturaSensor(IhidroBaseSensor):
             return "Credit"
         elif amount == 0:
             return "Plătit"
+        elif self._is_overdue(bill, amount):
+            return "Restant"
         else:
             return "Neplătit"
 
@@ -2346,6 +2485,8 @@ class IhidroSoldFacturaSensor(IhidroBaseSensor):
             return "mdi:check-decagram"
         elif status == "Credit":
             return "mdi:cash-plus"
+        elif status == "Restant":
+            return "mdi:alert-circle"
         elif status == "Neplătit":
             return "mdi:alert-circle-outline"
         return "mdi:help-circle"
@@ -2361,89 +2502,12 @@ class IhidroSoldFacturaSensor(IhidroBaseSensor):
             amount = safe_float(raw_amount)
             attrs[ATTR_AMOUNT] = raw_amount
             attrs["amount_formatat"] = format_ron(amount)
-            if amount < 0:
-                attrs["status_detaliat"] = "Credit"
-            elif amount == 0:
-                attrs["status_detaliat"] = "Plătit"
-            else:
-                attrs["status_detaliat"] = "Neplătit"
-            attrs[ATTR_DUE_DATE] = format_date_ro(bill.get("duedate"))
-        return attrs
-
-
-# =============================================================================
-# Factură Restantă (Da / Nu) — migrat din binary_sensor.py
-# =============================================================================
-
-
-class IhidroFacturaRestantaSensor(IhidroBaseSensor):
-    """Senzor text: Factură restantă (Da/Nu).
-
-    Afișează "Da" dacă sold > 0 ȘI data scadenței a trecut, "Nu" altfel.
-    Migrat din IhidroFacturaRestantaBinarySensor (care afișa On/Off).
-    Păstrează același unique_id pentru a nu pierde istoricul.
-
-    Folosește date() pentru comparație precisă pe zile (fără influența orei).
-    """
-
-    _attr_icon = "mdi:alert-circle"
-
-    def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator, entry)
-        self._attr_name = "Factură Restantă"
-        self._attr_unique_id = f"{entry.entry_id}_{self._uan}_factura_restanta"
-
-    def _is_overdue(self) -> Optional[bool]:
-        """Verifică dacă factura este restantă."""
-        bill = get_current_bill_data(self._data.get("current_bill"))
-        if not bill:
-            return None
-
-        amount = safe_float(bill.get("rembalance") or bill.get("billamount"))
-        if amount <= 0:
-            return False
-
-        due_date_str = bill.get("duedate")
-        if not due_date_str:
-            return False
-
-        due_dt = parse_date(due_date_str)
-        if due_dt and datetime.now().date() > due_dt.date():
-            return True
-        return False
-
-    @property
-    def native_value(self) -> Optional[str]:
-        """Returnează 'Da' sau 'Nu'."""
-        overdue = self._is_overdue()
-        if overdue is None:
-            return None
-        return "Da" if overdue else "Nu"
-
-    @property
-    def icon(self) -> str:
-        """Pictogramă dinamică."""
-        if self.native_value == "Da":
-            return "mdi:alert-circle"
-        return "mdi:check-circle-outline"
-
-    @property
-    def extra_state_attributes(self) -> Dict[str, Any]:
-        bill = get_current_bill_data(self._data.get("current_bill"))
-        attrs: Dict[str, Any] = {
-            ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
-        }
-        if bill:
-            raw_amount = bill.get("rembalance") or bill.get("billamount")
-            amount = safe_float(raw_amount)
-            attrs[ATTR_AMOUNT] = raw_amount
-            attrs["amount_formatat"] = format_ron(amount)
             attrs[ATTR_DUE_DATE] = format_date_ro(bill.get("duedate"))
 
-            # Zile restante (doar dacă e restantă)
-            due_dt = parse_date(bill.get("duedate"))
-            if due_dt and amount > 0:
-                delta_days = (datetime.now().date() - due_dt.date()).days
-                if delta_days > 0:
+            # Zile restante (doar dacă e restant)
+            if self._is_overdue(bill, amount):
+                due_dt = parse_date(bill.get("duedate"))
+                if due_dt:
+                    delta_days = (datetime.now().date() - due_dt.date()).days
                     attrs["zile_restante"] = delta_days
         return attrs

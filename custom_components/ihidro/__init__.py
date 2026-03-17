@@ -347,13 +347,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Migrăm entitățile care au schimbat platforma (binary_sensor → sensor)
     # Sold Factură a fost mutat din binary_sensor în sensor.
     # Citire Permisă a fost mutat din binary_sensor în sensor (v2.0.8).
-    # Factură Restantă a fost mutat din binary_sensor în sensor (v3.0.5).
+    # Factură Restantă — eliminat complet (consolidat în Sold Factură).
+    #   Trebuie curățat atât din binary_sensor (v1.x/v2.x) cât și din sensor (v3.0.5).
     ent_reg = er.async_get(hass)
     for uan in coordinators:
+        # Migrare binary_sensor → sensor (sold_factura, citire_permisa)
         _migrations = [
             (f"{entry.entry_id}_{uan}_sold_factura", "sensor"),
             (f"{entry.entry_id}_{uan}_citire_permisa", "sensor"),
-            (f"{entry.entry_id}_{uan}_factura_restanta", "sensor"),
         ]
         for unique_id, new_platform in _migrations:
             old_entity = ent_reg.async_get_entity_id(
@@ -364,6 +365,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     "Migrăm entitatea %s din binary_sensor → %s",
                     old_entity,
                     new_platform,
+                )
+                ent_reg.async_remove(old_entity)
+
+        # Cleanup complet: factura_restanta eliminat (consolidat în sold_factura)
+        _removals = [
+            (f"{entry.entry_id}_{uan}_factura_restanta", "binary_sensor"),
+            (f"{entry.entry_id}_{uan}_factura_restanta", "sensor"),
+        ]
+        for unique_id, platform in _removals:
+            old_entity = ent_reg.async_get_entity_id(
+                platform, DOMAIN, unique_id
+            )
+            if old_entity is not None:
+                _LOGGER.info(
+                    "Eliminăm entitatea %s (%s) — consolidat în Sold Factură",
+                    old_entity,
+                    platform,
                 )
                 ent_reg.async_remove(old_entity)
 

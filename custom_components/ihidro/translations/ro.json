@@ -97,17 +97,6 @@
         "name": "Consum Facturat Producție"
       }
     },
-    "binary_sensor": {
-      "sold_factura": {
-        "name": "Sold Factură"
-      },
-      "factura_restanta": {
-        "name": "Factură Restantă"
-      },
-      "citire_permisa": {
-        "name": "Citire Permisă"
-      }
-    },
     "button": {
       "trimite_index": {
         "name": "Trimite Index Contor"

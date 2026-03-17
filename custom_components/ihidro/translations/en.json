@@ -97,17 +97,6 @@
         "name": "Production Billed Consumption"
       }
     },
-    "binary_sensor": {
-      "sold_factura": {
-        "name": "Bill Balance"
-      },
-      "factura_restanta": {
-        "name": "Overdue Bill"
-      },
-      "citire_permisa": {
-        "name": "Reading Permitted"
-      }
-    },
     "button": {
       "trimite_index": {
         "name": "Submit Meter Reading"

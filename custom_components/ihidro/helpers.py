@@ -211,6 +211,8 @@ def format_date_ro(date_str: Optional[str]) -> Optional[str]:
     """Formatează o dată din formatul API (diverse) în DD.MM.YYYY.
 
     Acceptă: MM/DD/YYYY, YYYY-MM-DD, DD.MM.YYYY (pass-through), YYYYMMDD.
+    Dacă data conține o componentă de timp la miezul nopții (00:00), aceasta
+    este eliminată automat — nu oferă informație utilă.
     """
     if not date_str:
         return None
@@ -225,7 +227,12 @@ def format_date_ro(date_str: Optional[str]) -> Optional[str]:
         ("%d/%m/%Y", "%d.%m.%Y"),
     ]:
         try:
-            return datetime.strptime(date_str.strip(), fmt_in).strftime(fmt_out)
+            parsed = datetime.strptime(date_str.strip(), fmt_in)
+            result = parsed.strftime(fmt_out)
+            # Eliminăm componenta de timp dacă e miezul nopții (00:00)
+            if result.endswith(" 00:00"):
+                result = result[:-6]
+            return result
         except ValueError:
             continue
 
