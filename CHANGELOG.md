@@ -5,6 +5,13 @@ All notable changes to the iHidro Romania Home Assistant Integration will be doc
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.5](https://github.com/emanuelbesliu/homeassistant-ihidro/compare/v3.0.4...v3.0.5) (2026-03-17)
+
+
+### Bug Fixes
+
+* migrate Factură Restantă to sensor (Da/Nu), improve Zile Până la Scadență ([bdc06e9](https://github.com/emanuelbesliu/homeassistant-ihidro/commit/bdc06e92fc5532fea2b7cf42a7fcb000c09edcf7))
+
 ## [3.0.4](https://github.com/emanuelbesliu/homeassistant-ihidro/compare/v3.0.3...v3.0.4) (2026-03-17)
 
 
