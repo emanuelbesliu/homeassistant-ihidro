@@ -16,9 +16,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List
 
+import aiohttp
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import homeassistant.helpers.config_validation as cv
@@ -271,6 +274,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # Trigger reauth flow dacă și al doilea login eșuează
             entry.async_start_reauth(hass)
             return False
+        except (TimeoutError, aiohttp.ClientError, OSError) as err2:
+            raise ConfigEntryNotReady(
+                f"Timeout la re-autentificare iHidro: {err2}"
+            ) from err2
+    except (TimeoutError, aiohttp.ClientError, OSError) as err:
+        raise ConfigEntryNotReady(
+            f"Serverul iHidro nu răspunde: {err}"
+        ) from err
 
     # Obținem lista de POD-uri
     all_accounts = api.get_utility_accounts()
