@@ -5,6 +5,14 @@ All notable changes to the iHidro Romania Home Assistant Integration will be doc
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.3](https://github.com/emanuelbesliu/homeassistant-ihidro/compare/v2.0.2...v2.0.3) (2026-03-17)
+
+
+### Bug Fixes
+
+* handle list-type result.Data in diagnostics endpoint summary ([c60a410](https://github.com/emanuelbesliu/homeassistant-ihidro/commit/c60a410ce8536e52b770e21140764de359c0e196))
+* use async_register_static_paths for HA 2024.7+ compatibility ([e4a94e5](https://github.com/emanuelbesliu/homeassistant-ihidro/commit/e4a94e5ad462e184dcde6fe04930556eb7a77a2d))
+
 ## [2.0.2](https://github.com/emanuelbesliu/homeassistant-ihidro/compare/v2.0.1...v2.0.2) (2026-03-16)
 
 
