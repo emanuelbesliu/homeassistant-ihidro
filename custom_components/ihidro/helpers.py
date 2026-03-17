@@ -579,6 +579,7 @@ def anonymize_data(data: Any, sensitive_keys: Optional[set] = None) -> Any:
     """
     if sensitive_keys is None:
         sensitive_keys = {
+            # Original keys
             "AccountNumber",
             "UtilityAccountNumber",
             "UserID",
@@ -591,6 +592,25 @@ def anonymize_data(data: Any, sensitive_keys: Optional[set] = None) -> Any:
             "password",
             "UserId",
             "Authorization",
+            # Keys found in API responses (previously leaked)
+            "contractAccountID",
+            "accountID",
+            "pod",
+            "POD",
+            "distCustomer",
+            "distCustomerId",
+            "distContract",
+            "installationNumber",
+            "installation",
+            "Zipcode",
+            "serialNumber",
+            "CounterSeries",
+            "equipmentNo",
+            "invoiceId",
+            "invoicenumber",
+            "exbel",
+            "CityName",
+            "username",
         }
 
     if isinstance(data, dict):
