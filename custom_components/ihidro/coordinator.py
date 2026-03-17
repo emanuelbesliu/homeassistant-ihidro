@@ -438,9 +438,9 @@ class IhidroAccountCoordinator(DataUpdateCoordinator):
 
         # 3. Factură restantă (overdue)
         current_overdue = False
-        if bill_table:
-            amount = safe_float(bill_table[0].get("Amount"))
-            due_date_str = bill_table[0].get("DueDate")
+        if bill:
+            amount = safe_float(bill.get("rembalance") or bill.get("billamount"))
+            due_date_str = bill.get("duedate")
             if amount > 0 and due_date_str:
                 due_dt = parse_date(due_date_str)
                 if due_dt and datetime.now() > due_dt:
@@ -451,8 +451,8 @@ class IhidroAccountCoordinator(DataUpdateCoordinator):
             and current_overdue
             and not self._prev_overdue
         ):
-            overdue_amount = bill_table[0].get("Amount") if bill_table else None
-            overdue_due_date = bill_table[0].get("DueDate") if bill_table else None
+            overdue_amount = bill.get("billamount") if bill else None
+            overdue_due_date = bill.get("duedate") if bill else None
             ev_data = {
                 **event_data_base,
                 "amount": overdue_amount,
