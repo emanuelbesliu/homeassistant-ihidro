@@ -16,8 +16,9 @@ Senzori noi:
 - Producție Prosumator (dacă POD-ul este prosumator, cu Energy Dashboard support)
 - Compensare ANRE Prosumator (din separarea plăților pe canal)
 
-Notă: Senzorii Da/Nu (SoldFactura, FacturaRestanta, CitirePermisa)
-au fost mutați în binary_sensor.py ca BinarySensorEntity.
+Notă: Senzorii Da/Nu (SoldFactura, FacturaRestanta) au fost
+mutați în binary_sensor.py ca BinarySensorEntity.
+CitirePermisa a fost păstrat aici ca senzor string (Da/Nu).
 """
 
 import logging
@@ -58,6 +59,7 @@ from .helpers import (
     format_number_ro,
     parse_date,
     is_prosumer,
+    is_reading_window_open,
     get_meter_index_cascading,
     get_payment_list_from_bill_history,
     split_payments_by_channel,
@@ -111,6 +113,8 @@ async def async_setup_entry(
                 # Senzori inteligenți (Phase Z1, Z2)
                 IhidroEstimareFacturaSensor(coordinator, entry),
                 IhidroAnomalieConsumSensor(coordinator, entry),
+                # Senzor citire permisă (Da/Nu)
+                IhidroCitirePermisaSensor(coordinator, entry),
             ]
         )
 
@@ -1896,4 +1900,49 @@ class IhidroAnomalieConsumSensor(IhidroBaseSensor):
         else:
             attrs["alerte"] = ["Nicio anomalie detectată"]
 
+        return attrs
+
+
+# =============================================================================
+# Citire Permisă (Da / Nu)
+# =============================================================================
+
+
+class IhidroCitirePermisaSensor(IhidroBaseSensor):
+    """Senzor: Fereastra de autocitire este deschisă (Da/Nu).
+
+    Afișează "Da" dacă fereastra de autocitire este deschisă, "Nu" altfel.
+    """
+
+    _attr_icon = "mdi:calendar-check"
+
+    def __init__(
+        self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry
+    ) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_name = "Citire Permisă"
+        self._attr_unique_id = f"{entry.entry_id}_{self._uan}_citire_permisa"
+
+    @property
+    def native_value(self) -> Optional[str]:
+        """Returnează 'Da' sau 'Nu'."""
+        window_data = self._data.get("meter_window")
+        if not window_data:
+            return None
+        return "Da" if is_reading_window_open(window_data) else "Nu"
+
+    @property
+    def extra_state_attributes(self) -> Dict[str, Any]:
+        window_data = self._data.get("meter_window")
+        window = get_meter_window_info(window_data)
+        attrs: Dict[str, Any] = {
+            ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
+        }
+        if window:
+            attrs["window_start"] = format_date_ro(
+                window.get("NextMonthOpeningDate") or window.get("OpeningDate")
+            )
+            attrs["window_end"] = format_date_ro(
+                window.get("NextMonthClosingDate") or window.get("ClosingDate")
+            )
         return attrs

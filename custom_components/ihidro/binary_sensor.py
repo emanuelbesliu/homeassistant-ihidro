@@ -3,12 +3,8 @@
 Convertește senzorii Da/Nu din sensor.py în proper BinarySensorEntity:
 - Sold Factură — factură plătită (on = plătit, off = neplătit)
 - Factură Restantă — factură restantă (on = restant, off = nu)
-- Citire Permisă — fereastra de autocitire deschisă (on = deschis, off = închis)
 
-Avantaje față de senzori string:
-- Iconiță on/off nativă în HA
-- Compatibilitate cu automatizări condition: state is on/off
-- Integrare cu HA history și logbook
+Notă: Citire Permisă a fost mutat în sensor.py ca senzor string (Da/Nu).
 """
 
 import logging
@@ -37,10 +33,8 @@ from .helpers import (
     safe_float,
     format_date_ro,
     format_ron,
-    is_reading_window_open,
     parse_date,
     get_current_bill_data,
-    get_meter_window_info,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -64,7 +58,6 @@ async def async_setup_entry(
             [
                 IhidroSoldFacturaBinarySensor(coordinator, entry),
                 IhidroFacturaRestantaBinarySensor(coordinator, entry),
-                IhidroCitirePermisaBinarySensor(coordinator, entry),
             ]
         )
 
@@ -218,49 +211,4 @@ class IhidroFacturaRestantaBinarySensor(IhidroBaseBinarySensor):
                 delta = datetime.now() - due_dt
                 if delta.days > 0:
                     attrs["zile_restante"] = delta.days
-        return attrs
-
-
-# =============================================================================
-# Citire Permisă (fereastra de autocitire)
-# =============================================================================
-
-
-class IhidroCitirePermisaBinarySensor(IhidroBaseBinarySensor):
-    """Senzor binar: Fereastra de autocitire (on = deschisă, off = închisă).
-
-    on (is_on=True): Fereastra de autocitire este deschisă
-    off (is_on=False): Fereastra de autocitire este închisă
-    """
-
-    _attr_device_class = BinarySensorDeviceClass.LOCK
-    _attr_icon = "mdi:calendar-check"
-
-    def __init__(self, coordinator: IhidroAccountCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator, entry)
-        self._attr_name = "Citire Permisă"
-        self._attr_unique_id = f"{entry.entry_id}_{self._uan}_citire_permisa"
-
-    @property
-    def is_on(self) -> Optional[bool]:
-        """True = fereastra de autocitire este deschisă."""
-        window_data = self._data.get("meter_window")
-        if not window_data:
-            return None
-        return is_reading_window_open(window_data)
-
-    @property
-    def extra_state_attributes(self) -> Dict[str, Any]:
-        window_data = self._data.get("meter_window")
-        window = get_meter_window_info(window_data)
-        attrs: Dict[str, Any] = {
-            ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
-        }
-        if window:
-            attrs["window_start"] = format_date_ro(
-                window.get("NextMonthOpeningDate") or window.get("OpeningDate")
-            )
-            attrs["window_end"] = format_date_ro(
-                window.get("NextMonthClosingDate") or window.get("ClosingDate")
-            )
         return attrs

@@ -14,7 +14,6 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -36,7 +35,6 @@ _LOGGER = logging.getLogger(__name__)
 
 # Cheia pentru stocarea stării switch-ului în hass.data
 _AUTOSUBMIT_STATE_KEY = "ihidro_autosubmit_state"
-_AUTOSUBMIT_DELAY_KEY = "ihidro_autosubmit_delay"
 _AUTOSUBMIT_SUBMITTED_KEY = "ihidro_autosubmit_submitted"
 
 
@@ -45,7 +43,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Configurare switch-uri și number entities din config entry."""
+    """Configurare switch-uri din config entry."""
     from . import IhidroRuntimeData
 
     runtime_data: IhidroRuntimeData = hass.data[DOMAIN][entry.entry_id]
@@ -54,10 +52,9 @@ async def async_setup_entry(
     entities: list = []
     for uan, coordinator in coordinators.items():
         entities.append(IhidroAutoSubmitSwitch(coordinator, entry))
-        entities.append(IhidroAutoSubmitDelayNumber(coordinator, entry))
 
     async_add_entities(entities)
-    _LOGGER.info("Au fost create %d entități switch/number iHidro", len(entities))
+    _LOGGER.info("Au fost create %d entități switch iHidro", len(entities))
 
 
 class IhidroAutoSubmitSwitch(CoordinatorEntity, SwitchEntity):
@@ -526,91 +523,6 @@ class IhidroAutoSubmitSwitch(CoordinatorEntity, SwitchEntity):
             # Starea ferestrei
             attrs["fereastra_deschisa"] = self._is_reading_window_open()
         else:
-            attrs["motiv_indisponibil"] = (
-                "Configurați un senzor de energie extern în opțiunile integrării"
-            )
-
-        return attrs
-
-
-class IhidroAutoSubmitDelayNumber(CoordinatorEntity, NumberEntity):
-    """Entitate Number pentru configurarea delay-ului de autotransmitere.
-
-    Specifică câte zile după deschiderea ferestrei de citire să aștepte
-    înainte de a trimite automat indexul.
-
-    Indisponibilă (greyed out) dacă nu este configurat senzor de energie extern.
-    """
-
-    _attr_attribution = ATTRIBUTION
-    _attr_has_entity_name = True
-    _attr_icon = "mdi:timer-sand"
-    _attr_mode = NumberMode.SLIDER
-    _attr_native_min_value = 0
-    _attr_native_max_value = 10
-    _attr_native_step = 1
-    _attr_native_unit_of_measurement = "zile"
-
-    def __init__(
-        self,
-        coordinator: IhidroAccountCoordinator,
-        entry: ConfigEntry,
-    ) -> None:
-        """Inițializare Number entity."""
-        super().__init__(coordinator)
-        self.entry = entry
-        self._uan = coordinator.uan
-        self._an = coordinator.an
-        self._attr_name = "Delay Autotransmitere"
-        self._attr_unique_id = f"{entry.entry_id}_{self._uan}_autosubmit_delay"
-
-        # Valoarea stocată intern (default: 1 zi)
-        self._value: float = 1.0
-
-    @property
-    def device_info(self) -> Dict[str, Any]:
-        """Informații despre device (grupare cu senzorii per POD)."""
-        return {
-            "identifiers": {(DOMAIN, f"{self.entry.entry_id}_{self._uan}")},
-            "name": f"iHidro POD {self._uan}",
-            "manufacturer": "Hidroelectrica România",
-            "model": "Punct de Consum Electric",
-            "entry_type": DeviceEntryType.SERVICE,
-        }
-
-    def _get_energy_sensor_id(self) -> Optional[str]:
-        """Returnează entity_id senzorului de energie extern configurat."""
-        energy_sensor = self.entry.options.get(CONF_ENERGY_SENSOR, "")
-        return energy_sensor if energy_sensor else None
-
-    @property
-    def available(self) -> bool:
-        """Disponibil doar dacă există senzor de energie configurat."""
-        return self._get_energy_sensor_id() is not None
-
-    @property
-    def native_value(self) -> float:
-        """Returnează delay-ul curent (zile)."""
-        return self._value
-
-    async def async_set_native_value(self, value: float) -> None:
-        """Setează delay-ul."""
-        self._value = value
-        _LOGGER.debug(
-            "Delay autotransmitere setat la %.0f zile pentru POD %s",
-            value,
-            self._uan,
-        )
-
-    @property
-    def extra_state_attributes(self) -> Dict[str, Any]:
-        """Atribute adiționale."""
-        attrs: Dict[str, Any] = {
-            ATTR_UTILITY_ACCOUNT_NUMBER: self._uan,
-            ATTR_ACCOUNT_NUMBER: self._an,
-        }
-
-        if not self._get_energy_sensor_id():
             attrs["motiv_indisponibil"] = (
                 "Configurați un senzor de energie extern în opțiunile integrării"
             )
