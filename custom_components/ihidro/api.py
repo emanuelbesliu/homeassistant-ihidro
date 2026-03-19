@@ -237,20 +237,36 @@ class IhidroAPI:
             }
 
             # Pasul 3: GetUserSetting — obținem conturile
-            self._raw_user_setting_data = await self._get_utility_accounts()
+            # Transmitem headers explicit pentru a evita deadlock-ul:
+            # suntem deja sub _auth_lock, iar _post_request cu headers=None
+            # ar apela login(force=True) pe 401, care ar încerca să obțină
+            # același lock.
+            self._raw_user_setting_data = await self._get_utility_accounts(
+                headers=self._auth_header
+            )
 
             _LOGGER.info(
                 "=== iHidro: Autentificare finalizată — Găsite %d POD-uri ===",
                 len(self._utility_accounts),
             )
 
-    async def _get_utility_accounts(self) -> Dict[str, Any]:
-        """Obține lista de conturi (POD-uri) ale utilizatorului."""
+    async def _get_utility_accounts(
+        self, headers: Optional[Dict[str, str]] = None
+    ) -> Dict[str, Any]:
+        """Obține lista de conturi (POD-uri) ale utilizatorului.
+
+        Args:
+            headers: Explicit headers to use. When called from inside login()
+                     (which holds _auth_lock), pass explicit headers to avoid
+                     re-entering login() on 401 (which would deadlock).
+                     When called from login_if_needed() (no lock held), omit
+                     to enable automatic 401 -> re-auth handling.
+        """
         payload = {"UserID": self._user_id}
         resp = await self._post_request(
             API_PATH_GET_USER_SETTING,
             payload=payload,
-            headers=self._auth_header,
+            headers=headers,
             descriere="GetUserSetting - Lista POD-uri",
         )
 

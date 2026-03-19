@@ -28,7 +28,7 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 import voluptuous as vol
 
-from .api import IhidroAPI, IhidroAuthError
+from .api import IhidroAPI, IhidroApiError, IhidroAuthError
 from .const import (
     DOMAIN,
     CONFIG_VERSION,
@@ -277,6 +277,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             raise ConfigEntryNotReady(
                 f"Timeout la re-autentificare iHidro: {err2}"
             ) from err2
+    except IhidroApiError as err:
+        # Eroare non-auth de la API (ex: 500, răspuns invalid după re-auth)
+        raise ConfigEntryNotReady(
+            f"Eroare API iHidro la inițializare: {err}"
+        ) from err
     except (TimeoutError, aiohttp.ClientError, OSError) as err:
         raise ConfigEntryNotReady(
             f"Serverul iHidro nu răspunde: {err}"
