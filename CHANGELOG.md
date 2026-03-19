@@ -5,6 +5,13 @@ All notable changes to the iHidro Romania Home Assistant Integration will be doc
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.9](https://github.com/emanuelbesliu/homeassistant-ihidro/compare/v3.0.8...v3.0.9) (2026-03-19)
+
+
+### Bug Fixes
+
+* prevent deadlock in _get_utility_accounts and catch IhidroApiError at setup ([089b709](https://github.com/emanuelbesliu/homeassistant-ihidro/commit/089b7098d4af7b5339613f5e31015014c4d581c3))
+
 ## [3.0.8](https://github.com/emanuelbesliu/homeassistant-ihidro/compare/v3.0.7...v3.0.8) (2026-03-19)
 
 
