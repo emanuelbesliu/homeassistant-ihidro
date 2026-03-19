@@ -5,6 +5,18 @@ All notable changes to the iHidro Romania Home Assistant Integration will be doc
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.8](https://github.com/emanuelbesliu/homeassistant-ihidro/compare/v3.0.7...v3.0.8) (2026-03-19)
+
+
+### Bug Fixes
+
+* resolve 401 race condition and energy sensor state_class warning ([0eb69c1](https://github.com/emanuelbesliu/homeassistant-ihidro/commit/0eb69c15d96d764db05cc32d0618f68601b1cb68))
+
+
+### Documentation
+
+* update README and info.md to reflect v3.x codebase ([7d5509f](https://github.com/emanuelbesliu/homeassistant-ihidro/commit/7d5509fd86abe0888d96397d0f1e91a910ef8a66))
+
 ## [3.0.7](https://github.com/emanuelbesliu/homeassistant-ihidro/compare/v3.0.6...v3.0.7) (2026-03-17)
 
 
