@@ -1410,14 +1410,16 @@ class IhidroNetUsageSensor(IhidroBaseSensor):
     Consum net = import - export. Valori negative indică surplus de producție.
     Esențial pentru calcularea ROI-ului panourilor solare.
 
-    Folosim SensorStateClass.MEASUREMENT deoarece valorile pot fi negative.
+    Folosim SensorStateClass.TOTAL deoarece device_class ENERGY necesită
+    state_class 'total' sau 'total_increasing'. Valoarea este un total
+    periodic (se resetează lunar) care poate fi și negativ (surplus).
 
     Fallback: dacă tentative data nu e disponibil (non-AMI), calculăm
     net = delta_consum - delta_productie din ultimele 2 citiri din meter_read_history.
     """
 
     _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_state_class = SensorStateClass.TOTAL
     _attr_native_unit_of_measurement = "kWh"
     _attr_icon = "mdi:transmission-tower-export"
 

@@ -140,15 +140,26 @@ class IhidroAPI:
             return
         await self.login()
 
-    async def login(self) -> None:
+    async def login(self, force: bool = False) -> None:
         """Autentificare la API iHidro.
 
         Secvența:
         1. GetId — obține key și token_id
         2. ValidateUserLogin — autentificare cu username/password
         3. GetUserSetting — obține conturile utilizatorului
+
+        Args:
+            force: Dacă True, invalidează token-ul curent și forțează
+                   re-autentificarea chiar dacă avem un session_token.
+                   Folosit de _post_request() la 401.
         """
         async with self._auth_lock:
+            if force:
+                # Invalidăm token-ul expirat — prima cerere care primește 401
+                # face acest lucru, celelalte vor găsi token-ul deja regenerat.
+                self._session_token = None
+                self._auth_header = None
+
             # Verificăm din nou după ce am obținut lock-ul (alt apel a putut
             # finaliza autentificarea între timp)
             if self._session_token:
@@ -855,15 +866,16 @@ class IhidroAPI:
             async with self._session.post(
                 url, json=payload, headers=req_headers, timeout=aiohttp.ClientTimeout(total=30)
             ) as response:
-                if response.status == 401:
+                if response.status == 401 and headers is None:
+                    # 401 pe o cerere autentificată (nu pe pașii de login
+                    # care trimit headers explicit). Re-autentificăm cu
+                    # force=True: invalidează token-ul expirat sub lock.
+                    # Cererile paralele care primesc 401 simultan vor
+                    # aștepta la lock și vor găsi token-ul regenerat.
                     _LOGGER.warning(
                         "Primim 401 la %s, facem re-autentificare...", descriere
                     )
-                    # Invalidăm session-ul curent
-                    self._session_token = None
-                    self._auth_header = None
-                    # Re-autentificare
-                    await self.login()
+                    await self.login(force=True)
 
                     # Verificăm dacă utilizatorul mai are acces la acest POD
                     req_uan = payload.get("UtilityAccountNumber")
@@ -877,7 +889,7 @@ class IhidroAPI:
                                 f"Utilizatorul nu mai are acces la POD-ul {req_uan}"
                             )
 
-                    # A doua încercare (retry)
+                    # A doua încercare (retry) cu noul header
                     async with self._session.post(
                         url,
                         json=payload,
