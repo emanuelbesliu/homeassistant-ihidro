@@ -5,6 +5,13 @@ All notable changes to the iHidro Romania Home Assistant Integration will be doc
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.10](https://github.com/emanuelbesliu/homeassistant-ihidro/compare/v3.0.9...v3.0.10) (2026-04-07)
+
+
+### Bug Fixes
+
+* use max meter index instead of most recent entry ([5cc464c](https://github.com/emanuelbesliu/homeassistant-ihidro/commit/5cc464ce17b4a189eca747e62fdc283c6c83aaf5)), closes [#35](https://github.com/emanuelbesliu/homeassistant-ihidro/issues/35)
+
 ## [3.0.9](https://github.com/emanuelbesliu/homeassistant-ihidro/compare/v3.0.8...v3.0.9) (2026-03-19)
 
 
