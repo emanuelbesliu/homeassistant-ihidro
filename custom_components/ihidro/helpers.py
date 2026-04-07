@@ -379,19 +379,22 @@ def get_meter_index_cascading(
         "meter_read_history", "previous_meter_read", "meter_counter_series", "none"
     """
     # Sursa 1: GetMeterReadHistory
-    # IMPORTANT: API returnează lista sortată ASCENDENT (cele mai vechi primele).
-    # Iterăm în ordine inversă (reversed) pentru a obține cea mai recentă citire.
+    # IMPORTANT: API poate returna înregistrări cu indexuri mai mici decât cele anterioare
+    # (ex: schimbare contor, corecții). Căutăm valoarea MAXIMĂ, nu cea mai recentă.
     history_entries = get_data_list(data.get("meter_read_history"))
     if history_entries:
-        for entry in reversed(history_entries):
+        max_reading = 0.0
+        for entry in history_entries:
             entry_register = entry.get("Registers", "") or entry.get("Register", "")
             entry_meter = entry.get("CounterSeries", "") or entry.get("MeterNumber", "")
             if entry_register == register:
                 if active_meter and str(entry_meter) != str(active_meter):
                     continue
                 reading = safe_float(entry.get("Index") or entry.get("MeterReading"))
-                if reading > 0:
-                    return reading, "meter_read_history"
+                if reading > max_reading:
+                    max_reading = reading
+        if max_reading > 0:
+            return max_reading, "meter_read_history"
 
     # Sursa 2: GetPreviousMeterRead
     prev_entries = get_data_list(data.get("previous_meter_read"))
@@ -413,7 +416,7 @@ def get_meter_index_cascading(
 
     # Sursa 3: GetMeterCounterSeries
     # Index este un string comma-separated: "4132,4317,4780,5406,5396"
-    # Ultimul element este cel mai recent
+    # Luăm valoarea maximă (nu ultima — poate fi mai mică după corecții)
     series_entries = get_data_list(data.get("meter_counter_series"))
     if series_entries:
         for entry in series_entries:
@@ -422,12 +425,11 @@ def get_meter_index_cascading(
                 continue
             index_str = entry.get("Index", "")
             if isinstance(index_str, str) and "," in index_str:
-                # Comma-separated string — last value is most recent
-                parts = [p.strip() for p in index_str.split(",") if p.strip()]
-                if parts:
-                    reading = safe_float(parts[-1])
-                    if reading > 0:
-                        return reading, "meter_counter_series"
+                parts = [safe_float(p.strip()) for p in index_str.split(",") if p.strip()]
+                valid_parts = [v for v in parts if v > 0]
+                if valid_parts:
+                    reading = max(valid_parts)
+                    return reading, "meter_counter_series"
             else:
                 # Numeric or single value
                 reading = safe_float(index_str or entry.get("LastIndex") or entry.get("MeterReading"))
